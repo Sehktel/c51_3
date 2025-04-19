@@ -1,46 +1,97 @@
-# c51cc
+# c51cc: C51 Clojure Compiler
 
-C51 Clojure Compiller 
+## 🚀 Проект
 
-## Installation
+`c51cc` - это специализированный компилятор для микроконтроллеров C51, написанный на Clojure. Проект нацелен на создание мощного и эффективного инструмента трансляции кода для платформы 8051.
 
-Download from http://github.com/Sehktel/c51cc
+## 🌟 Особенности
 
-## Usage
+- **Язык реализации**: Clojure
+- **Целевая платформа**: Микроконтроллеры семейства C51
+- **Статус**: Активная разработка (версия 0.0.1-SNAPSHOT)
 
-## Options
+## 🛠 Установка
 
-## Examples
+### Prerequisites
+- Clojure 1.11.1
+- Leiningen
 
-...
+### Клонирование репозитория
+```bash
+git clone https://github.com/Sehktel/c51cc.git
+cd c51cc
+```
 
-### Bugs
+### Сборка проекта
+```bash
+lein deps     # Загрузка зависимостей
+lein compile  # Компиляция проекта
+```
 
-...
+## 🔧 Использование
 
-### Any Other Sections
-### That You Think
-### Might be Useful
+### Базовое использование
+```clojure
+(require '[c51cc.core :as compiler])
 
-## License
+;; Пример трансляции кода (будет обновлено)
+(compiler/compile-source "your-source-code")
+```
+
+## 📦 Компоненты
+
+### Ключевые файлы
+- `lexer.md`: Документация по лексическому анализу
+- `project.clj`: Конфигурация проекта Leiningen
+
+### Структура проекта
+```
+c51cc/
+├── src/           # Исходный код компилятора
+├── test/          # Тесты
+├── resources/     # Вспомогательные ресурсы
+└── doc/           # Документация
+```
+
+## 🧪 Тестирование
+
+```bash
+lein test  # Запуск тестов
+```
+
+## 🔬 Текущие направления развития
+
+- Завершение лексического и синтаксического анализа
+- Разработка генерации кода
+- Оптимизация компилятора
+- Расширение тестового покрытия
+
+## 🐛 Известные проблемы
+
+- Проект находится на ранней стадии разработки
+- Возможны нестабильность и неполная функциональность
+
+## 🤝 Contributing
+
+1. Форкните репозиторий
+2. Создайте feature-branch (`git checkout -b feature/amazing-feature`)
+3. Закоммитьте изменения (`git commit -m 'Add some amazing feature'`)
+4. Запушьте в branch (`git push origin feature/amazing-feature`)
+5. Откройте Pull Request
+
+## 📄 Лицензия
+
+Распространяется под лицензией MIT.
 
 Copyright (c) 2025 Sehktel
-MIT License
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Полный текст лицензии см. в файле `LICENSE`
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## 📞 Контакты
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+- **Автор**: Sehktel
+- **GitHub**: [c51cc Repository](https://github.com/Sehktel/c51cc)
+
+---
+
+**Disclaimer**: Проект находится в активной разработке. Используйте с осторожностью.
