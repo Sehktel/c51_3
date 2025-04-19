@@ -1,15 +1,6 @@
 (ns c51cc.lexer_test
   (:require [clojure.test :refer :all]
-            ;; [c51cc.core :refer :all]
             [c51cc.lexer :refer :all]))
-
-
-(deftest a-test
-  (testing "FIXME, I fail."
-    (is (= 0 1))))
-
-
-
 
 (deftest is-special-keyword
   (testing "Is Special Keyword"
@@ -130,12 +121,12 @@
   (testing "Is String"
     (is (= (is-string? "\"Hello, World!\"") true))))
 
-(deftest is-comment
-  (testing "Is Comment"
-    (is (= (is-comment? "// This is a comment") true))
-    (is (= (is-comment? "/* This is a comment */") true))
-    (is (= (is-comment? "/* This is a comment /*") false))
-    (is (= (is-comment? "// This is a comment /*") true))))
+;; (deftest is-comment
+;;   (testing "Is Comment"
+;;     (is (= (is-comment? "// This is a comment") true))
+;;     (is (= (is-comment? "/* This is a comment */") true))
+;;     (is (= (is-comment? "/* This is a comment /*") false))
+;;     (is (= (is-comment? "// This is a comment /*") true))))
 
 (deftest tokenize-test
   (testing "Basic tokenization"
@@ -143,6 +134,66 @@
            (tokenize "int")))
     (is (= [{:value "a" :type :identifier}]
            (tokenize "a")))
-    (is (= [{:value "5" :type :number}]
-           (tokenize "5")))))
+    (is (= [{:value "0xfa" :type :hex_number}]
+           (tokenize "0xfa")))
+    (is (= [{:value "5" :type :int_number}]
+           (tokenize "5")))
+    
+    ;; Тесты для составных токенов
+    (is (= [{:value "int" :type :type-keyword}
+            {:value "a" :type :identifier}]
+           (tokenize "int a")))
+    
+    (is (= [{:value "int" :type :type-keyword}
+            {:value "a" :type :identifier}
+            {:value "=" :type :operator}
+            {:value "5" :type :int_number}]
+           (tokenize "int a = 5")))
+    
+    ;; Тесты для специальных ключевых слов
+    (is (= [{:value "sfr" :type :special-keyword}]
+           (tokenize "sfr")))
+    
+    (is (= [{:value "interrupt" :type :special-keyword}]
+           (tokenize "interrupt")))
+    
+    ;; Тесты для операторов
+    (is (= [{:value "+=" :type :operator}]
+           (tokenize "+=")))
+    
+    ;; Тесты для разделителей
+    (is (= [{:value "(" :type :separator}
+            {:value ")" :type :separator}]
+           (tokenize "( )")))
+    
+    ;; Тесты для управляющих конструкций
+    (is (= [{:value "if" :type :control-flow}]
+           (tokenize "if")))
+    
+    ;; Тесты для идентификаторов
+    (is (= [{:value "variable_name" :type :identifier}]
+           (tokenize "variable_name")))
+    
+    ;; Тесты для шестнадцатеричных чисел
+    (is (= [{:value "0x1A" :type :hex_number}]
+           (tokenize "0x1A")))
+    
+    ;; Тесты для строковых литералов
+    (is (= [{:value "\"Hello\"" :type :string}]
+           (tokenize "\"Hello\"")))
+    
+    ;; ;; Тесты для комментариев
+    ;; (is (= [{:value "// Comment" :type :comment}]
+    ;;        (tokenize "// Comment")))
+    
+    ;; Тесты для сложных выражений
+    (is (= [{:value "int" :type :type-keyword}
+            {:value "x" :type :identifier}
+            {:value "=" :type :operator}
+            {:value "5" :type :int_number}
+            {:value "+" :type :operator}
+            {:value "3" :type :int_number}
+            {:value ";" :type :separator}]
+           (tokenize "int x = 5 + 3;")))
+    ))
 
