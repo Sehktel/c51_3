@@ -1,4 +1,5 @@
 (ns c51cc.core
+  "Основной модуль программы"
   (:gen-class))
 
 (defn -main

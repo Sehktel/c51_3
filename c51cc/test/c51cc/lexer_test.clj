@@ -138,54 +138,54 @@
            (tokenize "0xfa")))
     (is (= [{:value "5" :type :int_number}]
            (tokenize "5")))
-    
+
     ;; Тесты для составных токенов
     (is (= [{:value "int" :type :type-keyword}
             {:value "a" :type :identifier}]
            (tokenize "int a")))
-    
+
     (is (= [{:value "int" :type :type-keyword}
             {:value "a" :type :identifier}
             {:value "=" :type :operator}
             {:value "5" :type :int_number}]
            (tokenize "int a = 5")))
-    
+
     ;; Тесты для специальных ключевых слов
     (is (= [{:value "sfr" :type :special-keyword}]
            (tokenize "sfr")))
-    
+
     (is (= [{:value "interrupt" :type :special-keyword}]
            (tokenize "interrupt")))
-    
+
     ;; Тесты для операторов
     (is (= [{:value "+=" :type :operator}]
            (tokenize "+=")))
-    
+
     ;; Тесты для разделителей
     (is (= [{:value "(" :type :separator}
             {:value ")" :type :separator}]
            (tokenize "( )")))
-    
+
     ;; Тесты для управляющих конструкций
     (is (= [{:value "if" :type :control-flow}]
            (tokenize "if")))
-    
+
     ;; Тесты для идентификаторов
     (is (= [{:value "variable_name" :type :identifier}]
            (tokenize "variable_name")))
-    
+
     ;; Тесты для шестнадцатеричных чисел
     (is (= [{:value "0x1A" :type :hex_number}]
            (tokenize "0x1A")))
-    
+
     ;; Тесты для строковых литералов
     (is (= [{:value "\"Hello\"" :type :string}]
            (tokenize "\"Hello\"")))
-    
+
     ;; ;; Тесты для комментариев
     ;; (is (= [{:value "// Comment" :type :comment}]
     ;;        (tokenize "// Comment")))
-    
+
     ;; Тесты для сложных выражений
     (is (= [{:value "int" :type :type-keyword}
             {:value "x" :type :identifier}
@@ -196,4 +196,3 @@
             {:value ";" :type :separator}]
            (tokenize "int x = 5 + 3;")))
     ))
-

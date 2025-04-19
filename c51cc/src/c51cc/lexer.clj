@@ -1,11 +1,9 @@
 (ns c51cc.lexer
-  (:require [clojure.string :as str]
-            [clojure.set :as set]
-            [clojure.java.io :as io]))
+  "Модуль для лексического анализатора"
+  (:require [clojure.string :as str]))
 
 ;; Предварительное объявление всех функций
 (declare keywords)
-(declare is-keyword?)
 (declare is-special-keyword?)
 (declare is-type-keyword?)
 (declare is-separator-keyword?)
@@ -23,13 +21,14 @@
 ;; =============================================
 
 (def keywords
+  "Определение типов токенов"
   {
-   ;; Special Keywords    
+   ;; Special Keywords
    :sfr_special_keyword ["sfr"]
    :sbit_special_keyword ["sbit"]
    :interrupt_special_keyword ["interrupt"]
    :using_special_keyword ["using"]
-   
+
    ;; Data Types
    :char_type_keyword ["char"]
    :int_type_keyword ["int"]
@@ -43,10 +42,10 @@
    :open_curly_bracket ["{"]
    :close_curly_bracket ["}"]
    :open_square_bracket ["["]
-   :close_square_bracket ["]"] 
+   :close_square_bracket ["]"]
    :semicolon [";"]
    :comma [","]
-   :colon [":"]   
+   :colon [":"]
 
    ;; Operators
    :arithmetic_operators ["+", "-", "*", "/", "%"]
@@ -73,7 +72,7 @@
    :continue_keyword ["continue"]
    :return_keyword ["return"]
    :goto_keyword ["goto"]
-   
+
    ;; Constants
    :const_keyword ["const"]
 
@@ -81,38 +80,44 @@
    :identifier #"[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*"
    :int_number #"[-+]?[0-9]+"
    :hex_number #"0[xX][0-9a-fA-F]+"
-   
+
    :string #"\"[^\"]*\""
    })
 
-;; Функция для проверки, является ли объект регулярным выражением
-(defn regexp? [x]
-  (instance? java.util.regex.Pattern x))
+;; ;; Функция для проверки, является ли объект регулярным выражением
+;; (defn regexp? [x]
+;;   (instance? java.util.regex.Pattern x))
 
 ;; =============================================
 ;; Проверки типов токенов
 ;; =============================================
 
-(defn is-special-keyword? [s]
-  (boolean (some #{s} 
-                 (concat 
+(defn is-special-keyword?
+  "Проверяет, является ли строка специальным ключевым словом"
+  [s]
+  (boolean (some #{s}
+                 (concat
                   (get keywords :sfr_special_keyword)
                   (get keywords :sbit_special_keyword)
                   (get keywords :interrupt_special_keyword)
                   (get keywords :using_special_keyword)))))
 
-(defn is-type-keyword? [s]
-  (boolean (some #{s} 
-                 (concat 
+(defn is-type-keyword?
+  "Проверяет, является ли строка типом"
+  [s]
+  (boolean (some #{s}
+                 (concat
                   (get keywords :char_type_keyword)
                   (get keywords :int_type_keyword)
                   (get keywords :void_type_keyword)
                   (get keywords :signed_type_keyword)
                   (get keywords :unsigned_type_keyword)))))
 
-(defn is-separator-keyword? [s]
-  (boolean (some #{s} 
-                 (concat 
+(defn is-separator-keyword?
+  "Проверяет, является ли строка разделителем"
+  [s]
+  (boolean (some #{s}
+                 (concat
                   (get keywords :open_round_bracket)
                   (get keywords :close_round_bracket)
                   (get keywords :open_curly_bracket)
@@ -123,9 +128,11 @@
                   (get keywords :comma)
                   (get keywords :colon)))))
 
-(defn is-operator-keyword? [s]
-  (boolean (some #{s} 
-                 (concat 
+(defn is-operator-keyword?
+  "Проверяет, является ли строка оператором"
+  [s]
+  (boolean (some #{s}
+                 (concat
                   (get keywords :arithmetic_operators)
                   (get keywords :comparison_operators)
                   (get keywords :logical_operators)
@@ -137,9 +144,11 @@
                   (get keywords :inc_operator)
                   (get keywords :dec_operator)))))
 
-(defn is-control-flow-keyword? [s]
-  (boolean (some #{s} 
-                 (concat 
+(defn is-control-flow-keyword?
+  "Проверяет, является ли строка управляющей конструкцией"
+  [s]
+  (boolean (some #{s}
+                 (concat
                   (get keywords :if_keyword)
                   (get keywords :else_keyword)
                   (get keywords :switch_keyword)
@@ -153,28 +162,40 @@
                   (get keywords :return_keyword)
                   (get keywords :goto_keyword)))))
 
-(defn is-constant-keyword? [s]
+(defn is-constant-keyword?
+  "Проверяет, является ли строка константой"
+  [s]
   (boolean (some #{s} (get keywords :const_keyword))))
 
-(defn is-identifier? [s]
+(defn is-identifier?
+  "Проверяет, является ли строка идентификатором"
+  [s]
   (boolean (re-matches (:identifier keywords) s)))
 
-(defn is-number? [s]
-  (boolean 
-   (or 
+(defn is-number?
+  "Проверяет, является ли строка числом"
+  [s]
+  (boolean
+   (or
     (re-matches (:int_number keywords) s)
     (re-matches (:hex_number keywords) s))))
 
-(defn get-number-type [s]
-  (cond 
+(defn get-number-type
+  "Определяет тип числа"
+  [s]
+  (cond
     (re-matches (:int_number keywords) s) :int_number
     (re-matches (:hex_number keywords) s) :hex_number
     :else :unknown))
 
-(defn is-string? [s]
+(defn is-string?
+  "Проверяет, является ли строка строковым литералом"
+  [s]
   (boolean (re-matches (:string keywords) s)))
 
-(defn get-token-type [token]
+(defn get-token-type
+  "Определяет тип токена"
+  [token]
   (cond
     (is-special-keyword? token) :special-keyword
     (is-type-keyword? token) :type-keyword
@@ -191,26 +212,28 @@
 ;; Токенизация кода
 ;; =============================================
 
-(defn token-for-keyword [token keyword-type]
+(defn token-for-keyword
   "Создает токен для ключевого слова с указанным типом"
-  {:value token :type keyword-type})
+ [token keyword-type]
+ {:value token :type keyword-type})
 
-(defn create-token-map []
+(defn create-token-map
   "Создает карту токенов для быстрого сопоставления"
+  []
   (let [keyword-type-mapping {
-        ;; Special Keywords  
+        ;; Special Keywords
         :sfr_special_keyword :special-keyword
         :sbit_special_keyword :special-keyword
         :interrupt_special_keyword :special-keyword
         :using_special_keyword :special-keyword
-        
+
         ;; Data Types
         :char_type_keyword :type-keyword
         :int_type_keyword :type-keyword
         :void_type_keyword :type-keyword
         :signed_type_keyword :type-keyword
         :unsigned_type_keyword :type-keyword
-        
+
         ;; Separators
         :open_round_bracket :separator
         :close_round_bracket :separator
@@ -221,7 +244,7 @@
         :semicolon :separator
         :comma :separator
         :colon :separator
-        
+
         ;; Operators
         :arithmetic_operators :operator
         :comparison_operators :operator
@@ -233,7 +256,7 @@
         :dec_operator :operator
         :increment_decrement_operators :operator
         :unary_operators :operator
-        
+
         ;; Control Flow
         :if_keyword :control-flow
         :else_keyword :control-flow
@@ -247,10 +270,10 @@
         :continue_keyword :control-flow
         :return_keyword :control-flow
         :goto_keyword :control-flow
-        
+
         ;; Constants
         :const_keyword :constant}]
-    
+
     (->> (dissoc keywords :identifier :int_number :hex_number :string)
          (mapcat (fn [[k v]]
                    (when (vector? v)
@@ -259,36 +282,38 @@
          ;; Сортируем по длине токена (от большего к меньшему) для корректного совпадения
          (sort-by #(- (count (first %)))))))
 
-(defn find-regex-token [code]
+(defn find-regex-token
   "Находит токен на основе регулярных выражений"
+  [code]
   (let [hex-match (re-find #"^0[xX][0-9a-fA-F]+" code)]
-    (cond 
+    (cond
       ;; Проверяем сначала шестнадцатеричные числа, чтобы не перепутать с идентификаторами
       hex-match
       {:value hex-match
        :type :hex_number}
-      
+
       ;; Проверяем целые числа (без плавающей точки)
       (re-find #"^[-+]?[0-9]+" code)
       {:value (re-find #"^[-+]?[0-9]+" code)
        :type :int_number}
-      
+
       ;; Проверяем строки
-      (and (str/starts-with? code "\"") 
+      (and (str/starts-with? code "\"")
            (> (count code) 1)
            (re-find #"^\"[^\"]*\"" code))
       {:value (re-find #"^\"[^\"]*\"" code)
        :type :string}
-      
+
       ;; Проверяем идентификаторы
       (re-find #"^[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*" code)
       {:value (re-find #"^[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*" code)
        :type :identifier}
-      
+
       :else nil)))
 
-(defn tokenize [code]
+(defn tokenize
   "Преобразует исходный код в последовательность токенов"
+  [code]
   (let [token-map (create-token-map)]
     (loop [remaining-code (str/trim code)
            tokens []]
@@ -299,17 +324,17 @@
                                   (when (str/starts-with? remaining-code token)
                                     token-info))
                                 token-map)
-              
+
               ;; Если точного совпадения нет, пытаемся найти по регулярным выражениям
               token (or exact-match (find-regex-token remaining-code))]
-          
+
           (if token
             (let [value (:value token)
-                  token-length (if (string? value) 
-                                 (count value) 
+                  token-length (if (string? value)
+                                 (count value)
                                  ;; Для случая, когда value не строка (возвращаемое значение из re-find может быть вектором)
                                  (count (first (if (vector? value) value [value]))))]
-              (recur 
+              (recur
                (str/trim (subs remaining-code token-length))
                (conj tokens (if (vector? (:value token))
                               ;; Если значение - вектор, берем первый элемент (полное совпадение)
