@@ -6,8 +6,7 @@
   :dependencies [[org.clojure/clojure "1.11.1"]]
   :main ^:skip-aot c51cc.core
   :test-paths ["test"]
-  :test-selectors {:default (complement :skip)
-                   :skip (fn [t] (:skip (meta t)))}
+
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all
                        :jvm-opts ["-Dclojure.compiler.direct-linking=true"]}})

@@ -80,7 +80,11 @@
 
    ;; Identifiers
    :identifier #"[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*"
-   :number #"[-+]?(?:0[xX][0-9a-fA-F]+|\d+)"
+  ;;  :number #"[-+]?(?:0[xX][0-9a-fA-F]+|\d+)"
+   
+   :int_number #"[-+]?[0-9]+(\.[0-9]+)?"
+   :hex_number #"0[xX][0-9a-fA-F]+"
+   
    :string #"\"[^\"]*\""
    :comment #"//[^\n]*|/\*.*?\*/"
    })
@@ -160,7 +164,16 @@
   (boolean (re-matches (:identifier keywords) s)))
 
 (defn is-number? [s]
-  (boolean (re-matches (:number keywords) s)))
+  (boolean 
+   (or 
+    (re-matches (:int_number keywords) s)
+    (re-matches (:hex_number keywords) s))))
+
+(defn get-number-type [s]
+  (cond 
+    (re-matches (:int_number keywords) s) :int_number
+    (re-matches (:hex_number keywords) s) :hex_number
+    :else :unknown))
 
 (defn is-string? [s]
   (boolean (re-matches (:string keywords) s)))
@@ -173,21 +186,24 @@
 ;; =============================================
 
 (defn tokenize [code]
-  (let [token-pattern (re-pattern 
-                       (str "(?:" 
-                            (str/join "|" 
-                                      (map (fn [k]
-                                             (let [v (get keywords k)]
-                                               (if (regexp? v)
-                                                 (str v)
-                                                 (str "(?:" (first v) ")"))))
-                                           (keys keywords))) 
-                            ")"))]
+  (let [token-pattern 
+        (re-pattern 
+         (str/join "|" 
+                   (remove nil? 
+                           (map (fn [k]
+                                  (let [v (get keywords k)]
+                                    (cond 
+                                      (regexp? v) (str "(" (str v) ")")
+                                      (vector? v) (str "(" (str/join "|" (map #(java.util.regex.Pattern/quote %) v)) ")")
+                                      :else nil)))
+                                (keys keywords)))))]
     (vec 
-     (map (fn [token]
-            {:value token 
-             :type (get-token-type token)})
-          (re-seq token-pattern code)))))
+     (remove nil? 
+             (map (fn [token]
+                    (when-let [type (get-token-type token)]
+                      {:value token 
+                       :type type}))
+                  (re-seq token-pattern code))))))
 
 (defn is-keyword? [token]
   (or (is-special-keyword? token)
@@ -206,7 +222,7 @@
     (is-control-flow-keyword? token) :control-flow
     (is-constant-keyword? token) :constant
     (is-identifier? token) :identifier
-    (is-number? token) :number
+    (is-number? token) (get-number-type token)
     (is-string? token) :string
     (is-comment? token) :comment
     :else :unknown))
