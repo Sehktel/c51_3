@@ -1,4 +1,4 @@
-(ns c51cc.core-test
+(ns c51cc.core_test
   (:require [clojure.test :refer :all]
             [c51cc.core :refer :all]))
 

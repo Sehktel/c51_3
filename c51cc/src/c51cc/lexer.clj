@@ -1,0 +1,212 @@
+(ns c51cc.lexer
+  (:require [clojure.string :as str]
+            [clojure.set :as set]
+            [clojure.java.io :as io]))
+
+;; Предварительное объявление всех функций
+(declare keywords)
+(declare is-keyword?)
+(declare is-special-keyword?)
+(declare is-type-keyword?)
+(declare is-separator-keyword?)
+(declare is-operator-keyword?)
+(declare is-control-flow-keyword?)
+(declare is-constant-keyword?)
+(declare is-identifier?)
+(declare is-number?)
+(declare is-string?)
+(declare is-comment?)
+(declare get-token-type)
+(declare tokenize)
+
+;; =============================================
+;; Определение типов токенов
+;; =============================================
+
+(def keywords
+  {
+   ;; Special Keywords    
+   :sfr_special_keyword ["sfr"]
+   :sbit_special_keyword ["sbit"]
+   :interrupt_special_keyword ["interrupt"]
+   :using_special_keyword ["using"]
+   
+   ;; Data Types
+   :char_type_keyword ["char"]
+   :int_type_keyword ["int"]
+   :void_type_keyword ["void"]
+   :signed_type_keyword ["signed"]
+   :unsigned_type_keyword ["unsigned"]
+
+   ;; Separators
+   :open_round_bracket ["("]
+   :close_round_bracket [")"]
+   :open_curly_bracket ["{"]
+   :close_curly_bracket ["}"]
+   :open_square_bracket ["["]
+   :close_square_bracket ["]"] 
+   :semicolon [";"]
+   :comma [","]
+   :colon [":"]   
+
+   ;; Operators
+   :arithmetic_operators ["+", "-", "*", "/", "%"]
+   :comparison_operators ["==", "!=", "<", ">", "<=", ">="]
+   :logical_operators ["&&", "||", "!"]
+   :bitwise_operators ["&", "|", "^"]
+   :bitwise_shift_operators ["<<", ">>"]
+   :assignment_operators ["=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="]
+   :inc_operator ["++"]
+   :dec_operator ["--"]
+   :increment_decrement_operators ["++", "--"]
+   :unary_operators ["~", "!"]
+
+   ;; Control Flow:
+   :if_keyword ["if"]
+   :else_keyword ["else"]
+   :switch_keyword ["switch"]
+   :case_keyword ["case"]
+   :default_keyword ["default"]
+   :for_keyword ["for"]
+   :while_keyword ["while"]
+   :do_keyword ["do"]
+   :break_keyword ["break"]
+   :continue_keyword ["continue"]
+   :return_keyword ["return"]
+   :goto_keyword ["goto"]
+   
+   ;; Constants
+   :const_keyword ["const"]
+
+   ;; Identifiers
+   :identifier #"[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*"
+   :number #"[-+]?(?:0[xX][0-9a-fA-F]+|\d+)"
+   :string #"\"[^\"]*\""
+   :comment #"//[^\n]*|/\*.*?\*/"
+   })
+
+;; Функция для проверки, является ли объект регулярным выражением
+(defn regexp? [x]
+  (instance? java.util.regex.Pattern x))
+
+;; =============================================
+;; Проверки типов токенов
+;; =============================================
+
+(defn is-special-keyword? [s]
+  (boolean (some #{s} 
+                 (concat 
+                  (get keywords :sfr_special_keyword)
+                  (get keywords :sbit_special_keyword)
+                  (get keywords :interrupt_special_keyword)
+                  (get keywords :using_special_keyword)))))
+
+(defn is-type-keyword? [s]
+  (boolean (some #{s} 
+                 (concat 
+                  (get keywords :char_type_keyword)
+                  (get keywords :int_type_keyword)
+                  (get keywords :void_type_keyword)
+                  (get keywords :signed_type_keyword)
+                  (get keywords :unsigned_type_keyword)))))
+
+(defn is-separator-keyword? [s]
+  (boolean (some #{s} 
+                 (concat 
+                  (get keywords :open_round_bracket)
+                  (get keywords :close_round_bracket)
+                  (get keywords :open_curly_bracket)
+                  (get keywords :close_curly_bracket)
+                  (get keywords :open_square_bracket)
+                  (get keywords :close_square_bracket)
+                  (get keywords :semicolon)
+                  (get keywords :comma)
+                  (get keywords :colon)))))
+
+(defn is-operator-keyword? [s]
+  (boolean (some #{s} 
+                 (concat 
+                  (get keywords :arithmetic_operators)
+                  (get keywords :comparison_operators)
+                  (get keywords :logical_operators)
+                  (get keywords :bitwise_operators)
+                  (get keywords :bitwise_shift_operators)
+                  (get keywords :assignment_operators)
+                  (get keywords :increment_decrement_operators)
+                  (get keywords :unary_operators)
+                  (get keywords :inc_operator)
+                  (get keywords :dec_operator)))))
+
+(defn is-control-flow-keyword? [s]
+  (boolean (some #{s} 
+                 (concat 
+                  (get keywords :if_keyword)
+                  (get keywords :else_keyword)
+                  (get keywords :switch_keyword)
+                  (get keywords :case_keyword)
+                  (get keywords :default_keyword)
+                  (get keywords :for_keyword)
+                  (get keywords :while_keyword)
+                  (get keywords :do_keyword)
+                  (get keywords :break_keyword)
+                  (get keywords :continue_keyword)
+                  (get keywords :return_keyword)
+                  (get keywords :goto_keyword)))))
+
+(defn is-constant-keyword? [s]
+  (boolean (some #{s} (get keywords :const_keyword))))
+
+(defn is-identifier? [s]
+  (boolean (re-matches (:identifier keywords) s)))
+
+(defn is-number? [s]
+  (boolean (re-matches (:number keywords) s)))
+
+(defn is-string? [s]
+  (boolean (re-matches (:string keywords) s)))
+
+(defn is-comment? [s]
+  (boolean (re-matches (:comment keywords) s)))
+
+;; =============================================
+;; Токенизация кода
+;; =============================================
+
+(defn tokenize [code]
+  (let [token-pattern (re-pattern 
+                       (str "(?:" 
+                            (str/join "|" 
+                                      (map (fn [k]
+                                             (let [v (get keywords k)]
+                                               (if (regexp? v)
+                                                 (str v)
+                                                 (str "(?:" (first v) ")"))))
+                                           (keys keywords))) 
+                            ")"))]
+    (vec 
+     (map (fn [token]
+            {:value token 
+             :type (get-token-type token)})
+          (re-seq token-pattern code)))))
+
+(defn is-keyword? [token]
+  (or (is-special-keyword? token)
+      (is-type-keyword? token)
+      (is-separator-keyword? token)
+      (is-operator-keyword? token)
+      (is-control-flow-keyword? token)
+      (is-constant-keyword? token)))
+
+(defn get-token-type [token]
+  (cond
+    (is-special-keyword? token) :special-keyword
+    (is-type-keyword? token) :type-keyword
+    (is-separator-keyword? token) :separator
+    (is-operator-keyword? token) :operator
+    (is-control-flow-keyword? token) :control-flow
+    (is-constant-keyword? token) :constant
+    (is-identifier? token) :identifier
+    (is-number? token) :number
+    (is-string? token) :string
+    (is-comment? token) :comment
+    :else :unknown))
