@@ -2,13 +2,28 @@
   "Многоуровневая система логирования с гибкой конфигурацией отладочных сообщений.
    Реализует иерархическую модель логирования с четырьмя уровнями детализации.")
 
+
+(declare debug-levels)
+(declare set-debug-level!)
+(declare can-log?)
+(declare trace)
+(declare debug)
+(declare info)
+(declare warn)
+(declare error)
+(declare fatal)
+(declare log)
+
 (def ^:private debug-levels 
   "Определение иерархии уровней логирования с семантической градацией.
    Каждый последующий уровень включает в себя сообщения предыдущих уровней."
   {:SILENT 0   ; Полное молчание, никакие сообщения не выводятся
-   :INFO   1   ; Только важные информационные сообщения
-   :DEBUG  2   ; Отладочные сообщения с дополнительным контекстом
-   :TRACE  3}) ; Максимально детальная трассировка выполнения
+   :FATAL  1   ; Фатальные ошибки
+   :ERROR  2   ; Критические ошибки
+   :WARNING  3   ; Предупреждения
+   :INFO   4   ; Только важные информационные сообщения
+   :DEBUG  5   ; Отладочные сообщения с дополнительным контекстом
+   :TRACE  6}) ; Максимально детальная трассировка выполнения
 
 (def ^:dynamic *current-debug-level* 
   "Динамическая переменная для текущего уровня логирования.
@@ -66,3 +81,27 @@
   [& messages]
   (when (can-log? :INFO)
     (println (str "INFO: " (apply str messages)))))
+
+(defn warn 
+  "Логирование предупреждений."
+  [& messages]
+  (when (can-log? :WARNING)
+    (println (str "WARNING: " (apply str messages)))))  
+
+(defn error 
+  "Логирование критических ошибок."
+  [& messages]
+  (when (can-log? :ERROR)
+    (println (str "ERROR: " (apply str messages)))))
+
+(defn fatal 
+  "Логирование фатальных ошибок."
+  [& messages]
+  (when (can-log? :FATAL)
+    (println (str "FATAL: " (apply str messages)))))
+
+(defn log 
+  "Логирование сообщений с уровнем по умолчанию."
+  [& messages]
+  (log :INFO (apply str messages)))
+
