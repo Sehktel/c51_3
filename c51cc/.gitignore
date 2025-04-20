@@ -12,3 +12,18 @@ pom.xml.asc
 /.prepl-port
 .hgignore
 .hg/
+temp
+
+# Temp directories
+temp/
+**/temp/
+/temp/
+temp/*
+**/temp/*
+/tmp/
+**/tmp/
+tmp/*
+**/tmp/*
+
+../temp/*
+
