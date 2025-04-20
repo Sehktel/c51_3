@@ -24,7 +24,7 @@
 ;; Тесты для парсинга программы
 (deftest test-parse-program
   (log/set-debug-level! :DEBUG)
-  (testing "Парсинг простой программы"
+  (testing "Парсинг простой программы с пустой функцией"
     (log/debug "Начало теста: Парсинг простой программы")
     (let [tokens (create-tokens
                   [:type-keyword "int"]
@@ -41,23 +41,43 @@
 
 ;; Тесты для парсинга функций
 (deftest test-parse-function-declaration
-  (testing "Корректное объявление функции"
+  (testing "Корректное объявление функции без параметров"
     (log/set-debug-level! :TRACE)
     (log/debug "Начало теста: Корректное объявление функции")
     (let [tokens (create-tokens
-                  [:type-keyword "void"]
+                  [:type-keyword "int"]
                   [:identifier "testFunction"]
                   [:separator "("]
                   [:separator ")"]
                   [:separator "{"]
-                  [:separator ";"]
                   [:separator "}"])
-          parser (parser/create-parser tokens)
-          result (parser/parse-function-declaration parser tokens)]
+          result (parser/parse-function-declaration (parser/create-parser tokens) tokens)]
+      (log/debug "Результат парсинга функции:" result)
+      (is (= (:type result) :function-declaration))
+      (is (= (:return-type result) "int"))
+      (is (= (:name result) "testFunction"))
+      (is (empty? (:parameters result)))
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Корректное объявление функции с параметрами"
+    (log/debug "Начало теста: Функция с параметрами")
+    (let [tokens (create-tokens
+                  [:type-keyword "void"]
+                  [:identifier "functionWithParams"]
+                  [:separator "("]
+                  [:type-keyword "int"]
+                  [:identifier "x"]
+                  [:separator ")"]
+                  [:separator "{"]
+                  [:separator "}"])
+          result (parser/parse-function-declaration (parser/create-parser tokens) tokens)]
       (log/debug "Результат парсинга функции:" result)
       (is (= (:type result) :function-declaration))
       (is (= (:return-type result) "void"))
-      (is (= (:name result) "testFunction"))
+      (is (= (:name result) "functionWithParams"))
+      (is (= (count (:parameters result)) 1))
+      (is (= (first (:parameters result)) 
+             {:type "int" :name "x"}))
       (log/debug "Тест завершен успешно")))
 
   (testing "Некорректное объявление функции"
@@ -67,9 +87,8 @@
                   [:separator "("])]
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
-           #"Некорректное объявление функции"
-           (let [parser (parser/create-parser tokens)]
-             (parser/parse-function-declaration parser tokens))))
+           #"Некорректное начало объявления функции"
+           (parser/parse-function-declaration (parser/create-parser tokens) tokens)))
       (log/debug "Тест на некорректное объявление функции завершен"))))
 
 ;; Тесты для парсинга переменных
@@ -79,13 +98,12 @@
     (let [tokens (create-tokens
                   [:type-keyword "int"]
                   [:identifier "x"])
-          parser (parser/create-parser tokens)
-          result (parser/parse-variable-declaration parser tokens)]
+          result (parser/parse-variable-declaration (parser/create-parser tokens) tokens)]
       (log/debug "Результат парсинга переменной:" result)
       (is (= (:type result) :variable-declaration))
       (is (= (:var-type result) "int"))
       (is (= (:name result) "x"))
-      (log/debug "Тест завершен успешно"))
+      (log/debug "Тест завершен успешно")))
 
   (testing "Некорректное объявление переменной"
     (log/debug "Начало теста: Некорректное объявление переменной")
@@ -94,8 +112,7 @@
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"Некорректное объявление переменной"
-           (let [parser (parser/create-parser tokens)]
-             (parser/parse-variable-declaration parser tokens))))
+           (parser/parse-variable-declaration (parser/create-parser tokens) tokens)))
       (log/debug "Тест на некорректное объявление переменной завершен"))))
 
 ;; Тесты для парсинга выражений
@@ -104,23 +121,21 @@
     (log/debug "Начало теста: Парсинг идентификатора")
     (let [tokens (create-tokens
                   [:identifier "variable"])
-          parser (parser/create-parser tokens)
-          result (parser/parse-expression parser tokens)]
+          result (parser/parse-expression (parser/create-parser tokens) tokens)]
       (log/debug "Результат парсинга идентификатора:" result)
       (is (= (:type result) :expression))
       (is (= (:value result) "variable"))
-      (log/debug "Тест завершен успешно"))
+      (log/debug "Тест завершен успешно")))
 
   (testing "Парсинг числа"
     (log/debug "Начало теста: Парсинг числа")
     (let [tokens (create-tokens
                   [:int_number "42"])
-          parser (parser/create-parser tokens)
-          result (parser/parse-expression parser tokens)]
+          result (parser/parse-expression (parser/create-parser tokens) tokens)]
       (log/debug "Результат парсинга числа:" result)
       (is (= (:type result) :expression))
       (is (= (:value result) "42"))
-      (log/debug "Тест завершен успешно"))
+      (log/debug "Тест завершен успешно")))
 
   (testing "Неподдерживаемое выражение"
     (log/debug "Начало теста: Неподдерживаемое выражение")
@@ -129,9 +144,8 @@
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"Неподдерживаемое выражение"
-           (let [parser (parser/create-parser tokens)]
-             (parser/parse-expression parser tokens))))
-      (log/debug "Тест на неподдерживаемое выражение завершен")))))))
+           (parser/parse-expression (parser/create-parser tokens) tokens)))
+      (log/debug "Тест на неподдерживаемое выражение завершен"))))
 
 ;; Запуск всех тестов
 ;; (defn run-tests
