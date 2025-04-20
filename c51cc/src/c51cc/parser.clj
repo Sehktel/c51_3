@@ -2,87 +2,46 @@
   "Модуль PEG-парсера для языка C51"
   (:require [instaparse.core :as insta]
             [c51cc.logger :as log]
+            [c51cc.lexer :as lexer]
+            [c51cc.grammar :as grammar]
             [clojure.string :as str]))
 
-;; Расширенная PEG-грамматика для языка C51 с максимальной гибкостью
-(def c51-grammar
-  "program = <whitespace*> (declaration <whitespace*>)* <whitespace*>
-   
-   declaration = function-declaration / variable-declaration
-   
-   function-declaration = type-keyword <whitespace+> identifier <whitespace*> 
-                          <'('> <whitespace*> parameters? <whitespace*> <')'> 
-                          <whitespace*> function-body
-   
-   function-body = <'{'> <whitespace*> statement* <whitespace*> <'}'>
-   
-   parameters = parameter (<whitespace*> ',' <whitespace*> parameter)*
-   parameter = type-keyword <whitespace+> identifier
-   
-   variable-declaration = type-keyword <whitespace+> variable-list <';'>
-   
-   variable-list = variable-init (<whitespace*> ',' <whitespace*> variable-init)*
-   variable-init = identifier (<whitespace*> '=' <whitespace*> expression)?
-   
-   statement = variable-declaration 
-             / assignment-statement
-             / function-call-statement
-             / control-flow 
-             / return-statement
-             / <whitespace*>
-   
-   assignment-statement = identifier <whitespace*> '=' <whitespace*> expression <';'>
-   function-call-statement = function-call <';'>
-   
-   return-statement = 'return' <whitespace+> expression <whitespace*> ';'
-   
-   function-call = identifier <whitespace*> <'('> <whitespace*> arguments? <whitespace*> <')'>
-   arguments = expression (<whitespace*> ',' <whitespace*> expression)*
-   
-   control-flow = ('if' / 'while') <whitespace*> <'('> <whitespace*> expression <whitespace*> <')'> 
-                 <whitespace*> <'{'> <whitespace*> statement* <whitespace*> <'}'>
-   
-   expression = arithmetic-expression 
-              / parenthesized-expression
-              / identifier 
-              / number
-   
-   parenthesized-expression = <'('> <whitespace*> expression <whitespace*> <')'>
-   
-   arithmetic-expression = expression <whitespace*> operator <whitespace*> expression
-   
-   operator = '+' / '-' / '*' / '/' / '==' / '!=' / '<' / '>' / '='
-   
-   type-keyword = 'int' / 'void' / 'char' / 'void*' / 'unsigned int'
-   identifier = #'[a-zA-Z_][a-zA-Z0-9_]*'
-   number = #'[0-9]+'
-   
-   whitespace = #'\\s+'")
-
-;; Создание PEG-парсера с расширенной обработкой ошибок
 (defn create-parser 
   "Создание PEG-парсера с расширенной диагностикой"
   []
-  (insta/parser c51-grammar 
+  (log/debug "Создание PEG-парсера с расширенной диагностикой")
+  (insta/parser grammar/c51-grammar 
                 :output-format :enlive
                 :trace true))
+
+(defn tokenize-input
+  "Токенизация входных данных с использованием лексера"
+  [input]
+  (log/debug "Токенизация входных данных:" input)
+  (let [tokens (lexer/tokenize input)]
+    (log/debug "Полученные токены:" tokens)
+    tokens))
 
 (defn parse 
   "Основная функция парсинга с расширенной обработкой ошибок"
   [input]
-  (log/debug "Начало PEG-парсинга")
-  (let [parser (create-parser)]
+  (log/debug "Начало PEG-парсинга для входных данных:" input)
+  (let [parser (create-parser)
+        tokens (tokenize-input input)]
     (try 
       (let [result (parser input)]
-        (log/debug "Результат парсинга:" result)
         (if (insta/failure? result)
           (do 
-            (log/error "Ошибка парсинга:  " (insta/get-failure result))
+            (log/error "Ошибка парсинга:" (insta/get-failure result))
             {:error (insta/get-failure result)})
-          {:ast result}))
+          (do 
+            (log/debug "Успешный парсинг. Структура AST:" result)
+            {:ast result
+             :tokens tokens})))
       (catch Exception e
-        (log/error "Критическая ошибка парсинга" e)
-        {:error (.getMessage e)}))))
+        (log/error "Критическая ошибка парсинга:" (.getMessage e))
+        {:error (.getMessage e)
+         :tokens tokens}))))
 
 ;; Вспомогательные функции для трансформации
 (defn- extract-type 
@@ -98,39 +57,47 @@
 (defn- transform-function-declaration 
   "Трансформация узла объявления функции"
   [node]
-  (let [[type-node name-node params-node body-node] (:content node)]
-    {:type :function
-     :return-type (extract-type type-node)
-     :name (extract-identifier name-node)
-     :parameters (mapv (fn [param-node]
-                         (let [[param-type param-name] (:content param-node)]
-                           {:type (extract-type param-type)
-                            :name (extract-identifier param-name)}))
-                       (get-in params-node [:content] []))
-     :body (get-in body-node [:content])}))
+  (log/debug "Трансформация объявления функции. Входной узел:" node)
+  (let [[type-node name-node params-node body-node] (:content node)
+        result {:type :function
+                :return-type (extract-type type-node)
+                :name (extract-identifier name-node)
+                :parameters (mapv (fn [param-node]
+                                    (let [[param-type param-name] (:content param-node)]
+                                      {:type (extract-type param-type)
+                                       :name (extract-identifier param-name)}))
+                                  (get-in params-node [:content] []))
+                :body (get-in body-node [:content])}]
+    (log/debug "Результат трансформации функции:" result)
+    result))
 
 (defn- transform-variable-declaration 
   "Трансформация узла объявления переменной с поддержкой множественных деклараций"
   [node]
+  (log/debug "Трансформация объявления переменной. Входной узел:" node)
   (let [[type-node vars-node] (:content node)
         type-str (first (get-in type-node [:content]))
-        var-nodes (get-in vars-node [:content] [])]
-    {:type :variable
-     :var-type type-str
-     :variables (filterv (comp not nil? :name) 
-                         (mapv (fn [var-node]
-                                 (let [[name-node & init-node] (:content var-node)
-                                       name-str (first (get-in name-node [:content]))]
-                                   {:name name-str
-                                    :initial-value (when (seq init-node)
-                                                    (first (first init-node)))}))
-                               var-nodes))}))
+        var-nodes (get-in vars-node [:content] [])
+        result {:type :variable
+                :var-type type-str
+                :variables (filterv (comp not nil? :name) 
+                                    (mapv (fn [var-node]
+                                            (let [[name-node & init-node] (:content var-node)
+                                                  name-str (first (get-in name-node [:content]))]
+                                              {:name name-str
+                                               :initial-value (when (seq init-node)
+                                                               (first (first init-node)))}))
+                                          var-nodes))}]
+    (log/debug "Результат трансформации переменной:" result)
+    result))
 
 ;; Трансформация AST для дальнейшего анализа
 (defn transform-ast 
   "Преобразование PEG AST в более удобную структуру"
   [ast]
+  (log/debug "Начало трансформации AST. Входной AST:" ast)
   (let [transform-node (fn [node]
+                         (log/trace "Трансформация узла:" node)
                          (cond
                            (and (map? node) (= (:tag node) :declaration))
                            (let [decl-node (first (:content node))]
@@ -141,14 +108,21 @@
                                (= (:tag decl-node) :variable-declaration)
                                (transform-variable-declaration decl-node)))
                            
-                           :else node))]
-    (mapv transform-node (:content ast))))
+                           :else node))
+        result (mapv transform-node (:content ast))]
+    (log/debug "Результат трансформации AST:" result)
+    result))
 
 ;; Публичный API для парсинга с трансформацией
 (defn parse-with-transform 
   "Полный цикл парсинга с трансформацией AST"
   [input]
+  (log/debug "Начало парсинга с трансформацией для входных данных:" input)
   (let [parse-result (parse input)]
     (if (:error parse-result)
-      parse-result
-      (update parse-result :ast transform-ast))))
+      (do 
+        (log/error "Ошибка при парсинге:" parse-result)
+        parse-result)
+      (let [transformed-result (update parse-result :ast transform-ast)]
+        (log/debug "Результат парсинга с трансформацией:" transformed-result)
+        transformed-result))))

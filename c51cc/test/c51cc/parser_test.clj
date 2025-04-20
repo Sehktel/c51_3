@@ -77,6 +77,7 @@
 
 ;; Тесты для обработки ошибок
 (deftest test-error-handling
+  ;; (log/set-debug-level! :TRACE)
   (testing "Парсинг некорректного кода"
     (let [input "int main( {"]
       (let [result (parser/parse input)]
