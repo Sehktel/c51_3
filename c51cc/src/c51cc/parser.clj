@@ -1,6 +1,7 @@
 (ns c51cc.parser
   "Модуль для синтаксического анализатора"
-  (:require [c51cc.lexer :as lexer]))
+  (:require [c51cc.lexer  :as lexer]
+            [c51cc.logger :as log]))
 
 ;; Парсер для языка C51 - абстракция синтаксического анализа
 
@@ -34,12 +35,16 @@
     - Используется рекурсивный спуск для декомпозиции структуры
 
     Сложность: O(n), где n - количество токенов"
+    (log/debug "Начало парсинга программы. Количество токенов: " (count tokens))
     (loop [remaining-tokens tokens
            parsed-nodes []]
       (if (empty? remaining-tokens)
-        {:type (:program ast-node-types)
-         :nodes parsed-nodes}
+        (do 
+          (log/info "Парсинг программы завершен. Количество узлов: " (count parsed-nodes))
+          {:type (:program ast-node-types)
+           :nodes parsed-nodes})
         (let [[declaration-node remaining] (parse-function-declaration this remaining-tokens)]
+          (log/trace "Распознан узел декларации: " declaration-node)
           (recur remaining (conj parsed-nodes declaration-node))))))
 
   (parse-function-declaration [_ tokens]
@@ -52,15 +57,18 @@
     - Проверка корректности типа возвращаемого значения
     - Валидация имени функции
     - Анализ параметров"
+    (log/debug "Начало парсинга объявления функции")
     (let [[type-token & remaining] tokens
           [name-token & remaining] remaining
           [open-paren & remaining] remaining]
       (when-not (and (= (:type type-token) :type-keyword)
                      (= (:type name-token) :identifier)
                      (= (:value open-paren) "("))
+        (log/info "Ошибка при парсинге объявления функции")
         (throw (ex-info "Некорректное объявление функции"
                         {:tokens tokens})))
 
+      (log/trace "Распознана функция: " (:value name-token) " с типом возврата " (:value type-token))
       {:type (:function-declaration ast-node-types)
        :return-type (:value type-token)
        :name (:value name-token)
@@ -75,13 +83,16 @@
     Семантический анализ:
     - Проверка корректности типа переменной
     - Опциональная инициализация"
+    (log/debug "Начало парсинга объявления переменной")
     (let [[type-token & remaining] tokens
           [name-token & remaining] remaining]
       (when-not (and (= (:type type-token) :type-keyword)
                      (= (:type name-token) :identifier))
+        (log/info "Ошибка при парсинге объявления переменной")
         (throw (ex-info "Некорректное объявление переменной"
                         {:tokens tokens})))
 
+      (log/trace "Распознана переменная: " (:value name-token) " типа " (:value type-token))
       {:type (:variable-declaration ast-node-types)
        :var-type (:value type-token)
        :name (:value name-token)
@@ -95,21 +106,28 @@
     - Поддержка арифметических и логических операций
 
     Сложность: O(n), где n - длина выражения"
+    (log/debug "Начало парсинга выражения")
     (let [[first-token & remaining] tokens]
       (cond
         (= (:type first-token) :identifier)
-        {:type (:expression ast-node-types)
-         :value (:value first-token)
-         :tokens remaining}
+        (do 
+          (log/trace "Распознан идентификатор: " (:value first-token))
+          {:type (:expression ast-node-types)
+           :value (:value first-token)
+           :tokens remaining})
 
         (= (:type first-token) :int_number)
-        {:type (:expression ast-node-types)
-         :value (:value first-token)
-         :tokens remaining}
+        (do 
+          (log/trace "Распознано целое число: " (:value first-token))
+          {:type (:expression ast-node-types)
+           :value (:value first-token)
+           :tokens remaining})
 
         :else
-        (throw (ex-info "Неподдерживаемое выражение"
-                        {:tokens tokens}))))))
+        (do 
+          (log/info "Неподдерживаемое выражение")
+          (throw (ex-info "Неподдерживаемое выражение"
+                          {:tokens tokens})))))))
 
 ;; Функция для создания парсера
 (defn create-parser

@@ -1,6 +1,7 @@
 (ns c51cc.lexer
   "Модуль для лексического анализатора"
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [c51cc.logger :as log]))
 
 ;; Предварительное объявление всех функций
 (declare keywords)
@@ -220,6 +221,7 @@
 (defn create-token-map
   "Создает карту токенов для быстрого сопоставления"
   []
+  (log/debug "Создание карты токенов")
   (let [keyword-type-mapping {
         ;; Special Keywords
         :sfr_special_keyword :special-keyword
@@ -272,53 +274,70 @@
         :goto_keyword :control-flow
 
         ;; Constants
-        :const_keyword :constant}]
-
-    (->> (dissoc keywords :identifier :int_number :hex_number :string)
-         (mapcat (fn [[k v]]
-                   (when (vector? v)
-                     (map #(vector % (token-for-keyword % (get keyword-type-mapping k k))) v))))
-         (into {})
-         ;; Сортируем по длине токена (от большего к меньшему) для корректного совпадения
-         (sort-by #(- (count (first %)))))))
+        :const_keyword :constant}
+        result 
+        (->> (dissoc keywords :identifier :int_number :hex_number :string)
+             (mapcat (fn [[k v]]
+                       (when (vector? v)
+                         (map #(vector % (token-for-keyword % (get keyword-type-mapping k k))) v))))
+             (into {})
+             ;; Сортируем по длине токена (от большего к меньшему) для корректного совпадения
+             (sort-by #(- (count (first %)))))]
+    (log/trace "Создана карта токенов. Количество токенов: " (count result))
+    result))
 
 (defn find-regex-token
   "Находит токен на основе регулярных выражений"
   [code]
+  (log/trace "Поиск токена по регулярным выражениям. Код: " code)
   (let [hex-match (re-find #"^0[xX][0-9a-fA-F]+" code)]
     (cond
       ;; Проверяем сначала шестнадцатеричные числа, чтобы не перепутать с идентификаторами
       hex-match
-      {:value hex-match
-       :type :hex_number}
+      (do 
+        (log/debug "Найдено шестнадцатеричное число: " hex-match)
+        {:value hex-match
+         :type :hex_number})
 
       ;; Проверяем целые числа (без плавающей точки)
       (re-find #"^[-+]?[0-9]+" code)
-      {:value (re-find #"^[-+]?[0-9]+" code)
-       :type :int_number}
+      (let [int-match (re-find #"^[-+]?[0-9]+" code)]
+        (log/debug "Найдено целое число: " int-match)
+        {:value int-match
+         :type :int_number})
 
       ;; Проверяем строки
       (and (str/starts-with? code "\"")
            (> (count code) 1)
            (re-find #"^\"[^\"]*\"" code))
-      {:value (re-find #"^\"[^\"]*\"" code)
-       :type :string}
+      (let [string-match (re-find #"^\"[^\"]*\"" code)]
+        (log/debug "Найдена строка: " string-match)
+        {:value string-match
+         :type :string})
 
       ;; Проверяем идентификаторы
       (re-find #"^[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*" code)
-      {:value (re-find #"^[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*" code)
-       :type :identifier}
+      (let [identifier-match (re-find #"^[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*" code)]
+        (log/debug "Найден идентификатор: " identifier-match)
+        {:value identifier-match
+         :type :identifier})
 
-      :else nil)))
+      :else 
+      (do 
+        (log/info "Не удалось распознать токен")
+        nil))))
 
 (defn tokenize
   "Преобразует исходный код в последовательность токенов"
   [code]
+  (log/debug "Начало токенизации исходного кода. Длина кода: " (count code))
   (let [token-map (create-token-map)]
     (loop [remaining-code (str/trim code)
            tokens []]
       (if (str/blank? remaining-code)
-        tokens
+        (do 
+          (log/info "Токенизация завершена. Количество токенов: " (count tokens))
+          tokens)
         (let [;; Сначала пытаемся найти точное совпадение токена
               exact-match (some (fn [[token token-info]]
                                   (when (str/starts-with? remaining-code token)
@@ -334,10 +353,13 @@
                                  (count value)
                                  ;; Для случая, когда value не строка (возвращаемое значение из re-find может быть вектором)
                                  (count (first (if (vector? value) value [value]))))]
+              (log/trace "Распознан токен: " token)
               (recur
                (str/trim (subs remaining-code token-length))
                (conj tokens (if (vector? (:value token))
                               ;; Если значение - вектор, берем первый элемент (полное совпадение)
                               (assoc token :value (first (:value token)))
                               token))))
-            (throw (ex-info "Tokenization error" {:remaining-code remaining-code}))))))))
+            (do 
+              (log/info "Ошибка токенизации. Оставшийся код: " remaining-code)
+              (throw (ex-info "Tokenization error" {:remaining-code remaining-code})))))))))
