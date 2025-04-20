@@ -1,4 +1,4 @@
-(ns c51cc.parser-test
+(ns c51cc.parser_test
   "Тесты для синтаксического анализатора"
   (:require [clojure.test :refer :all]
             [c51cc.parser :as parser]
@@ -102,11 +102,11 @@
              (parser/parse-expression parser tokens)))))))
 
 ;; Запуск всех тестов
-(defn run-tests
-  "Функция для запуска всех тестов
+;; (defn run-tests
+;;   "Функция для запуска всех тестов
 
-   Архитектурные соображения:
-   - Централизованный запуск тестов
-   - Возможность расширения"
-  []
-  (clojure.test/run-tests 'c51cc.parser-test))
+;;    Архитектурные соображения:
+;;    - Централизованный запуск тестов
+;;    - Возможность расширения"
+;;   []
+;;   (clojure.test/run-tests 'c51cc.parser-test))
