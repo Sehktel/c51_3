@@ -3,7 +3,8 @@
   :url "http://github.com/Sehktel/c51cc"
   :license {:name "MIT"
             :url "https://opensource.org/licenses/MIT"}
-  :dependencies [[org.clojure/clojure "1.11.1"]]
+  :dependencies [[org.clojure/clojure "1.11.1"]
+                 [instaparse "1.4.10"]]
   
   ;; Настройки для тестирования
   :test-paths ["test"]
