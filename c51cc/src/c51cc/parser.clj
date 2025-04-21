@@ -22,6 +22,8 @@
     (log/debug "Полученные токены:" tokens)
     tokens))
 
+(declare transform-ast)
+
 (defn parse 
   "Основная функция парсинга с расширенной обработкой ошибок"
   [input]
@@ -34,9 +36,9 @@
           (do 
             (log/error "Ошибка парсинга:" (insta/get-failure result))
             {:error (insta/get-failure result)})
-          (do 
-            (log/debug "Успешный парсинг. Структура AST:" result)
-            {:ast result
+          (let [semantic-ast (transform-ast result)]
+            (log/debug "Успешный парсинг и трансформация AST:" semantic-ast)
+            {:ast semantic-ast
              :tokens tokens})))
       (catch Exception e
         (log/error "Критическая ошибка парсинга:" (.getMessage e))
@@ -54,27 +56,72 @@
   [identifier-node]
   (first (get-in identifier-node [:content])))
 
+(defn- extract-interrupt-number
+  "Извлечение номера прерывания из узла AST с максимально надежным подходом"
+  [interrupt-node]
+  (log/debug "Полное содержимое узла прерывания:" (pr-str interrupt-node))
+  (let [content (:content interrupt-node)
+        _ (log/debug "Содержимое узла:" (pr-str content))]
+    (try 
+      (let [num-candidates (filter 
+                            #(or 
+                              (= (:tag %) :number)
+                              (= (:tag %) :integer-number)
+                              (= (:tag %) :int_number)) 
+                            content)]
+        (log/debug "Кандидаты на номер прерывания:" (pr-str num-candidates))
+        (let [result (cond 
+                       (empty? num-candidates) nil
+                       (map? (first num-candidates)) 
+                       (first (:content (first num-candidates)))
+                       (vector? (first num-candidates))
+                       (first (first num-candidates))
+                       :else 
+                       (first num-candidates))]
+          (log/debug "Извлеченный номер прерывания:" (pr-str result))
+          (cond
+            (nil? result) nil
+            (string? result) result
+            (coll? result) (first result)
+            :else (str result))))
+      (catch Exception e
+        (log/error "Ошибка при извлечении номера прерывания:" e)
+        nil))))
+
 (defn- transform-function-declaration 
   "Трансформация узла объявления функции"
   [node]
-  (log/debug "Трансформация объявления функции. Входной узел:" node)
-  (let [[type-node name-node params-node & rest] (:content node)
-        [interrupt-node body-node] (if (and (seq rest) 
-                                            (= (:tag (first rest)) :interrupt-specifier))
-                                     rest
-                                     [nil (first rest)])
+  (log/debug "Трансформация объявления функции. Входной узел:" (pr-str node))
+  (let [children (:content node)
+        _ (log/debug "Дочерние узлы:" (pr-str children))
+        type-node (first children)
+        name-node (second children)
+        rest (drop 2 children)
+        _ (log/debug "Оставшиеся узлы:" (pr-str rest))
+        [params-node rest1] (if (and (seq rest) (= (:tag (first rest)) :parameters))
+                              [(first rest) (drop 1 rest)]
+                              [nil rest])
+        _ (log/debug "Параметры:" (pr-str params-node))
+        _ (log/debug "Оставшиеся узлы после параметров:" (pr-str rest1))
+        [interrupt-node rest2] (if (and (seq rest1) (= (:tag (first rest1)) :interrupt-specifier))
+                                 [(first rest1) (drop 1 rest1)]
+                                 [nil rest1])
+        _ (log/debug "Узел прерывания:" (pr-str interrupt-node))
+        body-node (first rest2)
+        params (mapv (fn [param-node]
+                       (let [[param-type param-name] (:content param-node)]
+                         {:type (extract-type param-type)
+                          :name (extract-identifier param-name)}))
+                     (if params-node (:content params-node) []))
+        interrupt-number (when interrupt-node
+                           (extract-interrupt-number interrupt-node))
         result {:type :function
                 :return-type (extract-type type-node)
                 :name (extract-identifier name-node)
-                :parameters (mapv (fn [param-node]
-                                    (let [[param-type param-name] (:content param-node)]
-                                      {:type (extract-type param-type)
-                                       :name (extract-identifier param-name)}))
-                                  (get-in params-node [:content] []))
-                :interrupt-number (when interrupt-node 
-                                    (first (get-in interrupt-node [:content])))
+                :parameters params
+                :interrupt-number interrupt-number
                 :body (get-in body-node [:content])}]
-    (log/debug "Результат трансформации функции:" result)
+    (log/debug "Результат трансформации функции:" (pr-str result))
     result))
 
 (defn- transform-variable-declaration 

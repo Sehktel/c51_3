@@ -104,7 +104,11 @@
                  "  TL0 = 0x00;"
                  "  TR0 = 1;"
                  "}")]
-      (let [result (parser/parse input)]
+      (let [result (parser/parse input)
+            _ (println "Полный результат парсинга:" result)
+            _ (println "Тип AST:" (type (:ast result)))
+            _ (println "Содержимое AST:" (:ast result))
+            _ (println "Номер прерывания:" (get-in result [:ast 0 :interrupt-number]))]
         (is (not (:error result)) "Парсинг обработчика прерывания должен пройти без ошибок")
         (is (get-in result [:ast]) "AST обработчика прерывания должен быть сгенерирован")
         (is (= (get-in result [:ast 0 :interrupt-number]) "2") "Номер прерывания должен быть корректным")))
