@@ -58,7 +58,11 @@
   "Трансформация узла объявления функции"
   [node]
   (log/debug "Трансформация объявления функции. Входной узел:" node)
-  (let [[type-node name-node params-node body-node] (:content node)
+  (let [[type-node name-node params-node & rest] (:content node)
+        [interrupt-node body-node] (if (and (seq rest) 
+                                            (= (:tag (first rest)) :interrupt-specifier))
+                                     rest
+                                     [nil (first rest)])
         result {:type :function
                 :return-type (extract-type type-node)
                 :name (extract-identifier name-node)
@@ -67,6 +71,8 @@
                                       {:type (extract-type param-type)
                                        :name (extract-identifier param-name)}))
                                   (get-in params-node [:content] []))
+                :interrupt-number (when interrupt-node 
+                                    (first (get-in interrupt-node [:content])))
                 :body (get-in body-node [:content])}]
     (log/debug "Результат трансформации функции:" result)
     result))
@@ -91,6 +97,19 @@
     (log/debug "Результат трансформации переменной:" result)
     result))
 
+(defn- transform-interrupt-declaration 
+  "Трансформация узла объявления прерывания"
+  [node]
+  (log/debug "Трансформация объявления прерывания. Входной узел:" node)
+  (let [[interrupt-num-node type-node name-node body-node] (:content node)
+        result {:type :interrupt
+                :interrupt-number (first (get-in interrupt-num-node [:content]))
+                :return-type (extract-type type-node)
+                :name (extract-identifier name-node)
+                :body (get-in body-node [:content])}]
+    (log/debug "Результат трансформации прерывания:" result)
+    result))
+
 ;; Трансформация AST для дальнейшего анализа
 (defn transform-ast 
   "Преобразование PEG AST в более удобную структуру"
@@ -106,7 +125,10 @@
                                (transform-function-declaration decl-node)
                                
                                (= (:tag decl-node) :variable-declaration)
-                               (transform-variable-declaration decl-node)))
+                               (transform-variable-declaration decl-node)
+                               
+                               (= (:tag decl-node) :interrupt-declaration)
+                               (transform-interrupt-declaration decl-node)))
                            
                            :else node))
         result (mapv transform-node (:content ast))]

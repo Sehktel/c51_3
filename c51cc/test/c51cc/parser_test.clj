@@ -77,7 +77,6 @@
 
 ;; Тесты для обработки ошибок
 (deftest test-error-handling
-  ;; (log/set-debug-level! :TRACE)
   (testing "Парсинг некорректного кода"
     (let [input "int main( {"]
       (let [result (parser/parse input)]
@@ -95,3 +94,33 @@
         (is (= (count (:ast result)) 1) "Должна быть одна функция")
         (is (= (get-in result [:ast 0 :return-type]) "int") "Тип возвращаемого значения должен быть корректным")
         (is (get-in result [:ast 0 :body]) "Тело функции должно быть сгенерировано")))))
+
+;; Тесты для прерываний в архитектуре C51
+(deftest test-interrupt-handling
+  (testing "Парсинг объявления обработчика прерывания"
+    (let [input (create-input 
+                 "void timer0_isr() interrupt 2 {"
+                 "  TH0 = 0x4B;"
+                 "  TL0 = 0x00;"
+                 "  TR0 = 1;"
+                 "}")]
+      (let [result (parser/parse input)]
+        (is (not (:error result)) "Парсинг обработчика прерывания должен пройти без ошибок")
+        (is (get-in result [:ast]) "AST обработчика прерывания должен быть сгенерирован")
+        (is (= (get-in result [:ast 0 :interrupt-number]) "2") "Номер прерывания должен быть корректным")))
+  
+  (testing "Парсинг сложного обработчика прерывания с использованием регистров"
+    (let [input (create-input 
+                 "void serial_isr() interrupt 4 {"
+                 "  if (RI) {"
+                 "    unsigned char received = SBUF;"
+                 "    RI = 0;"
+                 "  }"
+                 "  if (TI) {"
+                 "    TI = 0;"
+                 "  }"
+                 "}")]
+      (let [result (parser/parse input)]
+        (is (not (:error result)) "Парсинг сложного обработчика прерывания должен пройти без ошибок")
+        (is (get-in result [:ast]) "AST сложного обработчика прерывания должен быть сгенерирован")
+        (is (= (get-in result [:ast 0 :interrupt-number]) "4") "Номер прерывания должен быть корректным"))))))
