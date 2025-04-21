@@ -6,11 +6,11 @@
   "Расширенная PEG-грамматика для языка C51 с максимальной гибкостью"
   "program = <whitespace*> (declaration <whitespace*>)* <whitespace*>
    
-   declaration = function-declaration
+   declaration = function-declaration / variable-declaration
    
    function-declaration = type-keyword <whitespace+> identifier 
                           <'('> <whitespace*> parameters? <whitespace*> <')'> 
-                          interrupt-specifier?
+                          <whitespace*> interrupt-specifier? 
                           <whitespace*> function-body
    
    interrupt-specifier = 'interrupt' <whitespace+> number
@@ -56,6 +56,9 @@
    
    type-keyword = 'int' / 'void' / 'char' / 'void*' / 'unsigned int' / 'unsigned char'
    identifier = #'[a-zA-Z_][a-zA-Z0-9_]*'
-   number = #'[0-9]+'
+   integer-number = #'[0-9]+'
+   hex-number = #'0[xX][0-9a-fA-F]+'
+
+   number = integer-number / hex-number
    
    whitespace = #'\\s+'") 
