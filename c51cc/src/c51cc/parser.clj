@@ -1,7 +1,9 @@
 (ns c51cc.parser
   "Модуль для синтаксического анализатора"
   (:require [c51cc.lexer  :as lexer]
-            [c51cc.logger :as log]))
+            [c51cc.logger :as log]
+            [clojure.stacktrace :as stacktrace]
+            ))
 
 ;; Парсер для языка C51 - абстракция синтаксического анализа
 
@@ -42,7 +44,6 @@
 ;; Основная реализация парсера
 (defrecord C51Parser [tokens]
   ASTParser
-
   (parse-program [this tokens]
     "Анализ программы как последовательности деклараций и определений
 
@@ -64,8 +65,8 @@
               remaining (get declaration-result :tokens)]
           (log/trace "Распознан узел декларации: " declaration-node)
           (recur remaining (conj parsed-nodes declaration-node))))))
-
-  (parse-function-declaration [_ tokens]
+  
+  (parse-function-declaration [this tokens]
     "Улучшенный парсинг объявления функции
 
     Расширенная грамматика:
@@ -88,22 +89,24 @@
                         {:tokens tokens})))
       
       (let [parameters-result (parse-parameters after-paren)
-            [open-brace & after-brace] (:tokens parameters-result)
-            body-result (parse-function-body after-brace)]
+            tokens-after-params (:tokens parameters-result)
+            [open-brace & after-brace] (drop-while #(not= (:value %) "{") tokens-after-params)]
         
         (when-not (= (:value open-brace) "{")
-          (throw (ex-info "Ожидается открывающая фигурная скобка" {})))
+          (throw (ex-info "Ожидается открывающая фигурная скобка" 
+                          {:tokens tokens-after-params})))
         
-        (log/trace "Распознана функция:" (:value name-token))
-        
-        {:type (:function-declaration ast-node-types)
-         :return-type (:value type-token)
-         :name (:value name-token)
-         :parameters (:parameters parameters-result)
-         :body (:body body-result)
-         :tokens (:tokens body-result)})))
-
-  (parse-variable-declaration [_ tokens]
+        (let [body-result (parse-function-body after-brace)]
+          (log/trace "Распознана функция:" (:value name-token))
+          
+          {:type (:function-declaration ast-node-types)
+           :return-type (:value type-token)
+           :name (:value name-token)
+           :parameters (:parameters parameters-result)
+           :body (:body body-result)
+           :tokens (:tokens body-result)}))))
+  
+  (parse-variable-declaration [this tokens]
     "Парсинг объявления переменной
 
     Грамматика:
@@ -126,8 +129,8 @@
        :var-type (:value type-token)
        :name (:value name-token)
        :tokens remaining}))
-
-  (parse-expression [_ tokens]
+  
+  (parse-expression [this tokens]
     "Парсинг выражений
 
     Теоретическая модель:
@@ -178,56 +181,121 @@
     (parse-program parser tokens)))
 
 (defn- parse-parameters
-  "Парсинг параметров функции"
+  "Парсинг параметров функции с расширенной логикой
+
+  Грамматика параметров:
+  - void без параметров
+  - список типизированных параметров
+
+  Теоретические аспекты:
+  - Поддержка различных сигнатур функций
+  - Гибкий синтаксический анализ
+  - Обработка краевых случаев"
   [tokens]
-  (log/debug "Начало парсинга параметров функции")
-  (log/trace "Токены для парсинга параметров: " (pr-str tokens))
+  (log/debug "Начало парсинга параметров")
+  (log/trace "Входящие токены:" (pr-str tokens))
+  
   (loop [remaining tokens
          parameters []]
     (let [[current-token & rest] remaining]
-      (log/trace "Текущий токен: " (pr-str current-token))
-      (log/trace "Оставшиеся токены: " (pr-str rest))
+      (log/trace "Текущий токен:" (pr-str current-token))
+      (log/trace "Оставшиеся токены:" (pr-str rest))
+      
       (cond 
-        (= (:value current-token) ")") 
+        ;; Случай: void без параметров
+        (and (= (:type current-token) :type-keyword)
+             (= (:value current-token) "void")
+             (= (:value (first rest)) ")"))
         (do 
-          (log/trace "Завершение парсинга параметров. Найдено параметров: " (count parameters))
-          {:parameters parameters 
+          (log/debug "Распознан void без параметров")
+          {:parameters [{:type "void" :name nil}]
            :tokens rest})
         
+        ;; Закрытие списка параметров
+        (= (:value current-token) ")")
+        (do 
+          (log/debug "Завершение парсинга параметров. Найдено параметров:" (count parameters))
+          {:parameters parameters 
+           :tokens remaining})
+        
+        ;; Парсинг типизированного параметра
         (= (:type current-token) :type-keyword)
         (let [[name-token & next-tokens] rest]
           (when-not (= (:type name-token) :identifier)
             (throw (ex-info "Некорректное имя параметра" 
                              {:token name-token})))
-          (log/trace "Распознан параметр: тип " (:value current-token) ", имя " (:value name-token))
-          (recur next-tokens 
-                 (conj parameters 
-                       {:type (:value current-token)
-                        :name (:value name-token)})))
+          
+          (log/trace "Распознан параметр: тип " (:value current-token) 
+                     ", имя " (:value name-token))
+          
+          (recur 
+           (if (= (:value (first next-tokens)) ",")
+             (rest next-tokens)  ; Пропускаем запятую
+             next-tokens)
+           (conj parameters 
+                 {:type (:value current-token)
+                  :name (:value name-token)})))
+        
+        ;; Разделитель между параметрами
+        (= (:value current-token) ",")
+        (recur rest parameters)
         
         :else 
         (throw (ex-info "Неожиданный токен в списке параметров" 
                         {:token current-token}))))))
 
 (defn- parse-function-body
-  "Парсинг тела функции"
+  "Парсинг тела функции с расширенной диагностикой
+
+  Теоретические аспекты:
+  - Отслеживание вложенности блоков
+  - Детальная обработка токенов
+  - Робастный синтаксический анализ"
   [tokens]
-  (loop [remaining tokens
-         depth 1
-         body-tokens []]
-    (let [[current-token & rest] remaining]
-      (cond 
-        (nil? current-token) 
-        (throw (ex-info "Незавершенное тело функции" {}))
-        
-        (= (:value current-token) "{") 
-        (recur rest (inc depth) (conj body-tokens current-token))
-        
-        (= (:value current-token) "}") 
-        (if (= depth 1)
-          {:body body-tokens 
-           :tokens rest}
-          (recur rest (dec depth) (conj body-tokens current-token)))
-        
-        :else 
-        (recur rest depth (conj body-tokens current-token))))))
+  (log/debug "Начало парсинга тела функции")
+  (log/trace "Входящие токены:" (pr-str tokens))
+  
+  (try 
+    (loop [remaining tokens
+           depth 1
+           body-tokens []]
+      (let [[current-token & rest] remaining]
+        (cond 
+          ;; Нет токенов - незавершенное тело функции
+          (nil? current-token) 
+          (if (> depth 1)
+            (throw (ex-info "Незавершенное тело функции" 
+                            {:tokens tokens
+                             :depth depth
+                             :body-tokens body-tokens}))
+            {:body body-tokens 
+             :tokens rest})
+          
+          ;; Открывающая фигурная скобка - увеличение глубины
+          (= (:value current-token) "{") 
+          (recur rest (inc depth) (conj body-tokens current-token))
+          
+          ;; Закрывающая фигурная скобка - уменьшение глубины
+          (= (:value current-token) "}") 
+          (let [new-depth (dec depth)]
+            (if (zero? new-depth)
+              {:body body-tokens 
+               :tokens rest}
+              (recur rest new-depth (conj body-tokens current-token))))
+          
+          ;; Обычный токен
+          :else 
+          (recur rest depth (conj body-tokens current-token)))))
+    
+    (catch Exception e
+      (log/error "Критическая ошибка при парсинге тела функции")
+      (log/error "Детали исключения:" (str e))
+      (log/error "Трассировка стека:" 
+        (with-out-str (stacktrace/print-stack-trace e)))
+      (when-let [data (ex-data e)]
+        (log/error "Дополнительные данные:" (pr-str data)))
+      (throw 
+       (ex-info 
+        "Ошибка при парсинге тела функции" 
+        {:original-exception e
+         :tokens tokens})))))

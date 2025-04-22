@@ -35,4 +35,12 @@
   :jvm-opts ["-Xmx1g"]
   
   ;; Точка входа для запуска
-  :main c51cc.core)
+  :main c51cc.core
+  
+  :test-selectors {
+    :manual (fn [m] (:manual m))
+    :manual-parse (fn [m] 
+                    (and 
+                      (:manual m)
+                      (= (str (:name m)) "test-manual-parse")))
+  })

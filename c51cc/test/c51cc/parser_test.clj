@@ -80,6 +80,28 @@
              {:type "int" :name "x"}))
       (log/debug "Тест завершен успешно")))
 
+  (testing "Корректное объявление функции с прерыванием"
+    (log/set-debug-level! :DEBUG)
+    (log/debug "Начало теста: Корректное объявление функции с прерыванием")
+    (let [tokens (create-tokens
+                  [:type-keyword "void"]
+                  [:identifier "foo"]
+                  [:separator "("]
+                  [:keyword "void"]
+                  [:separator ")"]
+                  [:keyword "interrupt"]
+                  [:int_number "0"]
+                  [:separator "{"]
+                  [:separator "}"])
+          result (parser/parse-function-declaration (parser/create-parser tokens) tokens)]
+      (log/debug "Результат парсинга функции:" result)
+      (is (= (:type result) :function-declaration))
+      (is (= (:return-type result) "void"))
+      (is (= (:name result) "foo"))
+      (is (= (count (:parameters result)) 0))
+      (log/debug "Тест завершен успешно")))
+
+
   (testing "Некорректное объявление функции"
     (log/debug "Начало теста: Некорректное объявление функции")
     (let [tokens (create-tokens

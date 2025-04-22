@@ -1,0 +1,1 @@
+void P14 (void) interrupt 0 { while(1){ P1 = 0x04; } }
