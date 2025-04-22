@@ -172,6 +172,72 @@
            (parser/parse-expression (parser/create-parser tokens) tokens)))
       (log/debug "Тест на неподдерживаемое выражение завершен"))))
 
+;; Тесты для парсинга препроцессорных директив
+(deftest test-parse-preprocessor-directives
+  (testing "Парсинг директивы #include с системным заголовочным файлом"
+    (log/debug "Начало теста: Парсинг #include с системным заголовочным файлом")
+    (let [tokens (create-tokens
+                  [:preprocessor-directive "#include"]
+                  [:include-path "<stdio.h>"])
+          result (parser/parse-preprocessor-directive (parser/create-parser tokens) tokens)]
+      (log/debug "Результат парсинга директивы #include:" result)
+      (is (= (:type result) :include-directive))
+      (is (= (:path result) "<stdio.h>"))
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Парсинг директивы #include с локальным заголовочным файлом"
+    (log/debug "Начало теста: Парсинг #include с локальным заголовочным файлом")
+    (let [tokens (create-tokens
+                  [:preprocessor-directive "#include"]
+                  [:include-path "\"myheader.h\""])
+          result (parser/parse-preprocessor-directive (parser/create-parser tokens) tokens)]
+      (log/debug "Результат парсинга директивы #include:" result)
+      (is (= (:type result) :include-directive))
+      (is (= (:path result) "\"myheader.h\""))
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Некорректная директива #include"
+    (log/debug "Начало теста: Некорректная директива #include")
+    (let [tokens (create-tokens
+                  [:preprocessor-directive "#include"]
+                  [:identifier "invalid_path"])]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Некорректная директива #include"
+           (parser/parse-preprocessor-directive (parser/create-parser tokens) tokens)))
+      (log/debug "Тест на некорректную директиву #include завершен")))
+
+  (testing "Неподдерживаемая препроцессорная директива"
+    (log/debug "Начало теста: Неподдерживаемая препроцессорная директива")
+    (let [tokens (create-tokens
+                  [:preprocessor-directive "#unsupported"])]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Неподдерживаемая препроцессорная директива"
+           (parser/parse-preprocessor-directive (parser/create-parser tokens) tokens)))
+      (log/debug "Тест на неподдерживаемую директиву завершен"))))
+
+;; Расширенные тесты для парсинга программы
+(deftest test-parse-program-with-directives
+  (testing "Парсинг программы с директивами препроцессора"
+    (log/debug "Начало теста: Парсинг программы с препроцессорными директивами")
+    (let [tokens (create-tokens
+                  [:preprocessor-directive "#include"]
+                  [:include-path "<stdio.h>"]
+                  [:type-keyword "int"]
+                  [:identifier "main"]
+                  [:separator "("]
+                  [:separator ")"]
+                  [:separator "{"]
+                  [:separator "}"])
+          result (parser/parse tokens)]
+      (log/debug "Результат парсинга программы:" result)
+      (is (= (:type result) :program))
+      (is (= (count (:nodes result)) 2))
+      (is (= (:type (first (:nodes result))) :include-directive))
+      (is (= (:type (second (:nodes result))) :function-declaration))
+      (log/debug "Тест завершен успешно"))))
+
 ;; Запуск всех тестов
 ;; (defn run-tests
 ;;   "Функция для запуска всех тестов

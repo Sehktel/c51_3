@@ -31,7 +31,9 @@
    :variable-declaration :variable-declaration
    :function-call :function-call
    :control-flow :control-flow
-   :expression :expression})
+   :expression :expression
+   :preprocessor-directive :preprocessor-directive
+   :include-directive :include-directive})
 
 ;; Протокол для парсинга различных конструкций языка
 (defprotocol ASTParser
@@ -39,19 +41,41 @@
   (parse-program [this tokens] "Парсинг всей программы")
   (parse-function-declaration [this tokens] "Парсинг объявления функции")
   (parse-variable-declaration [this tokens] "Парсинг объявления переменной")
-  (parse-expression [this tokens] "Парсинг выражения"))
+  (parse-expression [this tokens] "Парсинг выражения")
+  (parse-preprocessor-directive [this tokens] "Парсинг препроцессорной директивы"))
+
+;; Функция для парсинга препроцессорных директив
+(defn- parse-include-directive
+  "Парсинг директивы #include
+   
+   Грамматика:
+   include-directive ::= '#include' ('<' filename '>' | '\"' filename '\"')
+   
+   Параметры:
+   - tokens: последовательность токенов начиная с директивы #include"
+  [tokens]
+  (log/debug "Начало парсинга директивы #include")
+  (let [[include-token & remaining] tokens
+        [path-token & after-path] remaining]
+    (when-not (and (= (:type include-token) :preprocessor-directive)
+                   (= (:value include-token) "#include")
+                   (= (:type path-token) :include-path))
+      (throw (ex-info "Некорректная директива #include"
+                     {:tokens tokens})))
+    
+    {:type (:include-directive ast-node-types)
+     :path (:value path-token)
+     :tokens after-path}))
 
 ;; Основная реализация парсера
 (defrecord C51Parser [tokens]
   ASTParser
   (parse-program [this tokens]
-    "Анализ программы как последовательности деклараций и определений
+    "Анализ программы как последовательности деклараций, определений и директив
 
     Теоретическое обоснование:
     - Программа рассматривается как последовательность верхнеуровневых конструкций
-    - Используется рекурсивный спуск для декомпозиции структуры
-
-    Сложность: O(n), где n - количество токенов"
+    - Поддерживаются препроцессорные директивы и определения"
     (log/debug "Начало парсинга программы. Количество токенов: " (count tokens))
     (loop [remaining-tokens tokens
            parsed-nodes []]
@@ -60,11 +84,30 @@
           (log/info "Парсинг программы завершен. Количество узлов: " (count parsed-nodes))
           {:type (:program ast-node-types)
            :nodes parsed-nodes})
-        (let [declaration-result (parse-function-declaration this remaining-tokens)
-              declaration-node (:type declaration-result)
-              remaining (get declaration-result :tokens)]
-          (log/trace "Распознан узел декларации: " declaration-node)
-          (recur remaining (conj parsed-nodes declaration-node))))))
+        (let [[current & _] remaining-tokens
+              result (cond
+                      ;; Обработка препроцессорных директив
+                      (= (:type current) :preprocessor-directive)
+                      (parse-preprocessor-directive this remaining-tokens)
+                      
+                      ;; Обработка остальных конструкций
+                      :else
+                      (parse-function-declaration this remaining-tokens))
+              node (dissoc result :tokens)]
+          (recur (:tokens result) (conj parsed-nodes node))))))
+
+  (parse-preprocessor-directive [this tokens]
+    "Парсинг препроцессорных директив
+     
+     Поддерживаемые директивы:
+     - #include
+     - Другие директивы (будут добавлены позже)"
+    (log/debug "Начало парсинга препроцессорной директивы")
+    (let [[directive & _] tokens]
+      (case (:value directive)
+        "#include" (parse-include-directive tokens)
+        (throw (ex-info "Неподдерживаемая препроцессорная директива"
+                       {:directive directive})))))
   
   (parse-function-declaration [this tokens]
     "Улучшенный парсинг объявления функции
