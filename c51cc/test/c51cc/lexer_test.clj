@@ -147,9 +147,76 @@
 ;;     (is (= (is-comment? "/* This is a comment /*") false))
 ;;     (is (= (is-comment? "// This is a comment /*") true))))
 
+(deftest is-preprocessor-directive
+  (testing "Is Preprocessor Directive"
+    (log/debug "Начало теста: Проверка препроцессорных директив")
+    ;; Основные директивы препроцессора
+    (is (= (is-preprocessor-directive? "#include") true))
+    (is (= (is-preprocessor-directive? "#define") true))
+    (is (= (is-preprocessor-directive? "#undef") true))
+    
+    ;; Условные директивы
+    (is (= (is-preprocessor-directive? "#if") true))
+    (is (= (is-preprocessor-directive? "#ifdef") true))
+    (is (= (is-preprocessor-directive? "#ifndef") true))
+    (is (= (is-preprocessor-directive? "#else") true))
+    (is (= (is-preprocessor-directive? "#elif") true))
+    (is (= (is-preprocessor-directive? "#endif") true))
+    
+    ;; Специальные директивы
+    (is (= (is-preprocessor-directive? "#error") true))
+    (is (= (is-preprocessor-directive? "#pragma") true))
+    (is (= (is-preprocessor-directive? "#line") true))
+    (is (= (is-preprocessor-directive? "#warning") true))
+    
+    ;; Негативные тесты
+    (is (= (is-preprocessor-directive? "include") false))
+    (is (= (is-preprocessor-directive? "#notadirective") false))
+    (log/debug "Тест препроцессорных директив завершен")))
+
+(deftest is-include-path-test
+  (testing "Is Include Path"
+    (log/debug "Начало теста: Проверка путей включения")
+    ;; Стандартные заголовочные файлы
+    (is (= (is-include-path? "<stdio.h>") true))
+    (is (= (is-include-path? "<stdlib.h>") true))
+    (is (= (is-include-path? "<complex/path/header.h>") true))
+    
+    ;; Пользовательские заголовочные файлы
+    (is (= (is-include-path? "\"myheader.h\"") true))
+    (is (= (is-include-path? "\"../include/header.h\"") true))
+    (is (= (is-include-path? "\"./local/header.h\"") true))
+    
+    ;; Негативные тесты
+    (is (= (is-include-path? "stdio.h") false))
+    (is (= (is-include-path? "<incomplete") false))
+    (is (= (is-include-path? "\"unclosed") false))
+    (is (= (is-include-path? "<>") false))
+    (is (= (is-include-path? "\"\"") false))
+    (log/debug "Тест путей включения завершен")))
+
 (deftest tokenize-test
   (testing "Basic tokenization"
     (log/debug "Начало теста: Базовая токенизация")
+    
+    ;; Тесты для препроцессорных директив
+    (is (= [{:value "#include" :type :preprocessor-directive}
+            {:value "<stdio.h>" :type :include-path}]
+           (tokenize "#include <stdio.h>")))
+           
+    (is (= [{:value "#include" :type :preprocessor-directive}
+            {:value "\"myheader.h\"" :type :include-path}]
+           (tokenize "#include \"myheader.h\"")))
+           
+    (is (= [{:value "#define" :type :preprocessor-directive}
+            {:value "MAX_SIZE" :type :identifier}
+            {:value "100" :type :int_number}]
+           (tokenize "#define MAX_SIZE 100")))
+           
+    (is (= [{:value "#ifdef" :type :preprocessor-directive}
+            {:value "DEBUG" :type :identifier}]
+           (tokenize "#ifdef DEBUG")))
+    
     (is (= [{:value "int" :type :type-keyword}]
            (tokenize "int")))
     (is (= [{:value "a" :type :identifier}]
@@ -201,10 +268,6 @@
     ;; Тесты для строковых литералов
     (is (= [{:value "\"Hello\"" :type :string}]
            (tokenize "\"Hello\"")))
-
-    ;; ;; Тесты для комментариев
-    ;; (is (= [{:value "// Comment" :type :comment}]
-    ;;        (tokenize "// Comment")))
 
     ;; Тесты для сложных выражений
     (is (= [{:value "int" :type :type-keyword}

@@ -24,7 +24,24 @@
 (def keywords
   "Определение типов токенов"
   {
-   ;; Special Keywords
+   ;; Preprocessor Directives
+   :include_directive ["#include"]
+   :include_path #"[<\"][^>\"]*[>\"]"
+   :define_directive ["#define"]
+   :undef_directive ["#undef"]
+   :if_directive ["#if"]
+   :ifdef_directive ["#ifdef"]
+   :ifndef_directive ["#ifndef"]
+   :else_directive ["#else"]
+   :elif_directive ["#elif"]
+   :endif_directive ["#endif"]
+   :error_directive ["#error"]
+   :pragma_directive ["#pragma"]
+   :line_directive ["#line"]
+   :warning_directive ["#warning"]
+   
+   
+   ;; Special Keywords  
    :sfr_special_keyword ["sfr"]
    :sbit_special_keyword ["sbit"]
    :interrupt_special_keyword ["interrupt"]
@@ -92,6 +109,16 @@
 ;; =============================================
 ;; Проверки типов токенов
 ;; =============================================
+
+(defn is-preprocessor-directive?
+  "Проверяет, является ли строка препроцессорной директивой"
+  [s]
+  (boolean (some #{s} (get keywords :include_directive))))
+
+(defn is-include-path?
+  "Проверяет, является ли строка путем для включения файла"
+  [s]
+  (boolean (re-matches (:include_path keywords) s)))
 
 (defn is-special-keyword?
   "Проверяет, является ли строка специальным ключевым словом"
@@ -198,6 +225,8 @@
   "Определяет тип токена"
   [token]
   (cond
+    (is-preprocessor-directive? token) :preprocessor-directive
+    (is-include-path? token) :include-path
     (is-special-keyword? token) :special-keyword
     (is-type-keyword? token) :type-keyword
     (is-separator-keyword? token) :separator
