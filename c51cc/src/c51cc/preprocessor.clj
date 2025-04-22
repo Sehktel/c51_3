@@ -3,8 +3,51 @@
   (:require [clojure.string :as str]
             [c51cc.logger :as log]))
 
-;; Предварительное объявление для рекурсивной функции
-(declare process-multiline-comments)
+(defn- process-line-comments
+  "Обрабатывает все комментарии в одной строке.
+   
+   Параметры:
+   - line: строка для обработки
+   - in-comment?: находимся ли внутри многострочного комментария
+   
+   Возвращает:
+   [результирующая-строка, все-еще-в-комментарии?]"
+  [line in-comment?]
+  (if in-comment?
+    ;; Если мы внутри комментария, ищем его конец
+    (if (str/includes? line "*/")
+      [(str/trim (subs line (+ 2 (str/index-of line "*/")))) false]
+      ["" true])
+    ;; Если мы не внутри комментария, обрабатываем новые комментарии
+    (loop [result ""
+           current-line line
+           in-multiline? false]
+      (cond
+        ;; Внутри многострочного комментария
+        in-multiline?
+        (if (str/includes? current-line "*/")
+          (let [end-idx (+ 2 (str/index-of current-line "*/"))
+                after-comment (subs current-line end-idx)]
+            (recur result after-comment false))
+          [result true])
+        
+        ;; Новый многострочный комментарий
+        (str/includes? current-line "/*")
+        (let [start-idx (str/index-of current-line "/*")
+              before-comment (subs current-line 0 start-idx)]
+          (if (str/includes? current-line "*/")
+            (let [end-idx (+ 2 (str/index-of current-line "*/"))
+                  after-comment (subs current-line end-idx)]
+              (recur (str result before-comment) after-comment false))
+            [(str result before-comment) true]))
+        
+        ;; Однострочный комментарий
+        (str/includes? current-line "//")
+        [(str result (str/trim (subs current-line 0 (str/index-of current-line "//")))) false]
+        
+        ;; Нет комментариев
+        :else
+        [(str result (str/trim current-line)) false]))))
 
 (defn remove-comments
   "Удаляет комментарии из исходного кода C
@@ -22,62 +65,31 @@
   Сложность: O(n), где n - длина исходного кода"
   [code]
   (log/debug "Начало удаления комментариев из исходного кода")
-  ;; Состояние для отслеживания многострочных комментариев
   (let [state (atom {:in-multiline-comment false
                      :result-lines []})
         
-        ;; Рекурсивная обработка многострочных комментариев в строке
-        process-multiline-comments (fn [line]
-                                   (if (str/includes? line "/*")
-                                     (let [comment-start-idx (str/index-of line "/*")
-                                           before-comment (subs line 0 comment-start-idx)
-                                           rest-of-line (subs line comment-start-idx)]
-                                       (if (str/includes? rest-of-line "*/")
-                                         (let [comment-end-idx (str/index-of rest-of-line "*/")
-                                               after-comment (subs rest-of-line (+ 2 comment-end-idx))]
-                                           ;; Рекурсивно обрабатываем оставшуюся часть строки
-                                           (str before-comment 
-                                                (process-multiline-comments after-comment)))
-                                         rest-of-line))  ; Комментарий не закрыт в этой строке
-                                     line))  ; Нет начала комментария
-        
         ;; Обработчик одной строки кода
-        process-line (fn [line state]
-                      (let [{:keys [in-multiline-comment result-lines]} @state]
-                        (cond
-                          ;; Внутри многострочного комментария
-                          in-multiline-comment 
-                          (if (str/includes? line "*/")
-                            (let [comment-end-idx (str/index-of line "*/")
-                                  after-comment (subs line (+ 2 comment-end-idx))]
-                              (swap! state assoc 
-                                    :in-multiline-comment false
-                                    :result-lines (conj result-lines 
-                                                      (process-multiline-comments after-comment))))  ; Обрабатываем оставшуюся часть
-                            state)
-                          
-                          ;; Новая строка с возможными комментариями
-                          :else 
-                          (let [;; Сначала обрабатываем многострочные комментарии
-                                line-without-multiline (process-multiline-comments line)
-                                ;; Затем удаляем однострочные комментарии
-                                line-without-comments (str/replace line-without-multiline #"//.*$" "")]
-                            (swap! state assoc 
-                                   :result-lines (conj result-lines line-without-comments))))))]
+        process-line (fn [line]
+                      (let [[processed-line still-in-comment?] 
+                            (process-line-comments line (:in-multiline-comment @state))]
+                        (swap! state assoc :in-multiline-comment still-in-comment?)
+                        (when (not (str/blank? processed-line))
+                          (swap! state update :result-lines conj processed-line))))]
     
     ;; Обработка всех строк кода
     (doseq [line (str/split-lines code)]
-      (process-line line state))
+      (process-line line))
     
     ;; Финальная обработка результата
-    (let [processed-code (str/join "\n" (:result-lines @state))]
+    (let [processed-code (->> (:result-lines @state)
+                             (str/join "\n"))]
       (log/trace "Длина исходного кода: " (count code)
                  ", Длина кода после удаления комментариев: " (count processed-code))
       
       ;; Очистка от лишних пробелов и переводов строк
       (-> processed-code
           (str/replace #"\n\s*\n" "\n")  ; Удаление пустых строк
-          (str/trim)))))
+          str/trim))))
 
 (defn preprocess
   "Основная функция предварительной обработки кода
