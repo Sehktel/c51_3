@@ -14,6 +14,8 @@ pom.xml.asc
 .hg/
 temp
 .bak
+.idea
+test/404/*
 
 # Temp directories
 temp/
