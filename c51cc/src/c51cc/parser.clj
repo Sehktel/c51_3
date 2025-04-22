@@ -202,22 +202,31 @@
       (log/trace "Оставшиеся токены:" (pr-str rest))
       
       (cond 
-        ;; Случай: void без параметров
-        (and (= (:type current-token) :type-keyword)
-             (= (:value current-token) "void")
-             (= (:value (first rest)) ")"))
-        (do 
-          (log/debug "Распознан void без параметров")
-          {:parameters [{:type "void" :name nil}]
-           :tokens rest})
-        
-        ;; Закрытие списка параметров
+        ;; Случай: пустые скобки () - пустой список параметров
         (= (:value current-token) ")")
         (do 
           (log/debug "Завершение парсинга параметров. Найдено параметров:" (count parameters))
           {:parameters parameters 
            :tokens remaining})
         
+        ;; Случай: void без параметров 
+        (and (or (= (:type current-token) :type-keyword)
+                 (= (:type current-token) :keyword))
+             (= (:value current-token) "void")
+             (= (:value (first rest)) ")"))
+        (do 
+          (log/debug "Распознан void без параметров")
+          {:parameters [{:type :void_type_keyword :name "void"}]
+           :tokens rest})
+        
+        ;; Случай: ()
+        (and (= (:value current-token) "(")
+             (= (:value (first rest)) ")"))
+        (do 
+          (log/debug "Распознан пустой список параметров")
+          {:parameters []
+           :tokens rest})
+
         ;; Парсинг типизированного параметра
         (= (:type current-token) :type-keyword)
         (let [[name-token & next-tokens] rest]

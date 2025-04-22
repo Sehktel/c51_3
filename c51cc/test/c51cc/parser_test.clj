@@ -57,6 +57,7 @@
       (is (= (:return-type result) "int"))
       (is (= (:name result) "testFunction"))
       (is (empty? (:parameters result)))
+      (is (= (:body result) []))
       (log/debug "Тест завершен успешно")))
 
   (testing "Корректное объявление функции с параметрами"
@@ -78,6 +79,7 @@
       (is (= (count (:parameters result)) 1))
       (is (= (first (:parameters result)) 
              {:type "int" :name "x"}))
+      (is (= (count (:body result)) 0))      
       (log/debug "Тест завершен успешно")))
 
   (testing "Корректное объявление функции с прерыванием"
@@ -98,7 +100,8 @@
       (is (= (:type result) :function-declaration))
       (is (= (:return-type result) "void"))
       (is (= (:name result) "foo"))
-      (is (= (count (:parameters result)) 0))
+      (is (= (:parameters result) [{:type :void_type_keyword :name "void"}]))
+      (is (= (count (:parameters result)) 1))
       (log/debug "Тест завершен успешно")))
 
 
