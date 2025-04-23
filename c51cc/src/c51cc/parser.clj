@@ -3,6 +3,7 @@
   (:require [c51cc.lexer  :as lexer]
             [c51cc.logger :as log]
             [clojure.stacktrace :as stacktrace]
+            [clojure.string :as str]
             ))
 
 ;; Парсер для языка C51 - абстракция синтаксического анализа
@@ -49,7 +50,7 @@
   "Парсинг директивы #include
    
    Грамматика:
-   include-directive ::= '#include' ('<' filename '>' | '\"' filename '\"')
+   include-directive ::= '#include' '<' filename '.h' '>'
    
    Параметры:
    - tokens: последовательность токенов начиная с директивы #include"
@@ -59,8 +60,11 @@
         [path-token & after-path] remaining]
     (when-not (and (= (:type include-token) :preprocessor-directive)
                    (= (:value include-token) "#include")
-                   (= (:type path-token) :include-path))
-      (throw (ex-info "Некорректная директива #include"
+                   (= (:type path-token) :include-path)
+                   (str/starts-with? (:value path-token) "<")
+                   (str/ends-with? (:value path-token) ">")
+                   (str/ends-with? (subs (:value path-token) 1 (dec (count (:value path-token)))) ".h"))
+      (throw (ex-info "Некорректная директива #include. Требуется формат: #include <file.h>"
                      {:tokens tokens})))
     
     {:type (:include-directive ast-node-types)

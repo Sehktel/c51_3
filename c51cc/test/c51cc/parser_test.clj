@@ -185,25 +185,36 @@
       (is (= (:path result) "<stdio.h>"))
       (log/debug "Тест завершен успешно")))
 
-  (testing "Парсинг директивы #include с локальным заголовочным файлом"
-    (log/debug "Начало теста: Парсинг #include с локальным заголовочным файлом")
+  (testing "Некорректная директива #include с пользовательским заголовочным файлом"
+    (log/debug "Начало теста: Парсинг #include с пользовательским заголовочным файлом")
     (let [tokens (create-tokens
                   [:preprocessor-directive "#include"]
-                  [:include-path "\"myheader.h\""])
-          result (parser/parse-preprocessor-directive (parser/create-parser tokens) tokens)]
-      (log/debug "Результат парсинга директивы #include:" result)
-      (is (= (:type result) :include-directive))
-      (is (= (:path result) "\"myheader.h\""))
+                  [:include-path "\"myheader.h\""])]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Некорректная директива #include. Требуется формат: #include <file.h>"
+           (parser/parse-preprocessor-directive (parser/create-parser tokens) tokens)))
       (log/debug "Тест завершен успешно")))
 
-  (testing "Некорректная директива #include"
+  (testing "Некорректная директива #include без расширения .h"
+    (log/debug "Начало теста: Парсинг #include без расширения .h")
+    (let [tokens (create-tokens
+                  [:preprocessor-directive "#include"]
+                  [:include-path "<myfile>"])]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Некорректная директива #include. Требуется формат: #include <file.h>"
+           (parser/parse-preprocessor-directive (parser/create-parser tokens) tokens)))
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Некорректная директива #include с неправильным путем"
     (log/debug "Начало теста: Некорректная директива #include")
     (let [tokens (create-tokens
                   [:preprocessor-directive "#include"]
                   [:identifier "invalid_path"])]
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
-           #"Некорректная директива #include"
+           #"Некорректная директива #include. Требуется формат: #include <file.h>"
            (parser/parse-preprocessor-directive (parser/create-parser tokens) tokens)))
       (log/debug "Тест на некорректную директиву #include завершен")))
 
