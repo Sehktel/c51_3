@@ -101,7 +101,7 @@
                        :exception e})))))
 
 (defn- custom-read-include-file
-  "Кастомная функция чтения включаемого файла с расширенной диагностикой"
+  "Кастомная функция чтения включаемого файла с расширенной диагностикой и удалением комментариев"
   [filename base-path]
   (log/info (str "Попытка чтения включаемого файла: " filename))
   (log/info (str "Базовый путь: " base-path))
@@ -121,7 +121,10 @@
     (if-let [existing-file (first (filter #(.exists %) search-paths))]
       (do 
         (log/info (str "Найден файл: " (.getAbsolutePath existing-file)))
-        (slurp existing-file))
+        ;; Читаем файл и удаляем комментарии с помощью препроцессора
+        (let [raw-content (slurp existing-file)
+              cleaned-content (preprocessor/remove-comments raw-content)]
+          cleaned-content))
       (throw (ex-info (str "Include file not found: " filename)
                       {:filename filename
                        :base-path base-path
@@ -156,23 +159,29 @@
         
         ;; Препроцессинг с кастомной функцией чтения включаемых файлов
         preprocessed-code (with-redefs [preprocessor/read-include-file custom-read-include-file]
-                            (preprocessor/preprocess merged-code :base-path include-path))
-        
-        ;; Токенизация
-        tokens (lexer/tokenize preprocessed-code)
-        
-        ;; Парсинг в AST
-        ast (parser/parse tokens)]
+                            (preprocessor/preprocess merged-code :base-path include-path))]
+
+    (log/set-debug-level! :DEBUG)
+    (log/debug (str "\n\n\n Объединение файлов: \n\n\n" 
+                    "header-content: \n\n\n " header-content "\n" 
+                    "source-content: \n\n\n " source-content))
+    (log/debug (str "\n\n\n Препроцессинг: \n\n\n" preprocessed-code))
+    (log/debug (str "\n\n\n Токенизация: \n\n\n"))
     
-    (log/info "Полный цикл обработки файла завершен")
-    
-    ;; Возвращаем результаты каждого этапа для возможного анализа
-    {:header-path header-path
-     :source-path source-path
-     :merged-code merged-code
-     :preprocessed-code preprocessed-code
-     :tokens tokens
-     :ast ast}))
+    ;; Токенизация и парсинг
+    (let [tokens (lexer/tokenize preprocessed-code)
+          ast (parser/parse tokens)]
+      
+      (log/set-debug-level! :DEBUG)
+      (log/info "Полный цикл обработки файла завершен")
+      
+      ;; Возвращаем результаты каждого этапа для возможного анализа
+      {:header-path header-path
+       :source-path source-path
+       :merged-code merged-code
+       :preprocessed-code preprocessed-code
+       :tokens tokens
+       :ast ast})))
 
 (deftest test-c-file-processing
   (testing "Полный цикл обработки C-файла"

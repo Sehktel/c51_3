@@ -162,6 +162,3 @@ Interrupt Address = (Number * 8) + 3
 #define SIO_VECTOR	4  /* 0x23 Serial port */
 
 #endif
-
-
-
