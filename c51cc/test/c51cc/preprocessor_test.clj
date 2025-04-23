@@ -64,7 +64,7 @@
   (testing "Вложенные #define"
     (let [code "#define BASE_SHIFT 1\n#define BIT_2 (BASE_SHIFT << 2)\nint main() { P1 &= ~BIT_2; }"
           processed-code (preprocessor/preprocess code)]
-      (is (= processed-code "\n\nint main() { P1 &= ~((1 << 2)); }"))
+      (is (= processed-code "\n\nint main() { P1 &= ~(1 << 2); }"))
       (log/debug "Тест вложенных #define директив пройден"))))
 
 (deftest test-preprocess

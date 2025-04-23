@@ -179,7 +179,7 @@
                 resolved-value (reduce-kv 
                                 (fn [v k replacement]
                                   (str/replace v (re-pattern (str "\\b" k "\\b")) 
-                                               (str "(" replacement ")")))
+                                               (str replacement )))
                                 trimmed-value
                                 defines)
                 new-code (str/replace-first current-code full-match "")]
@@ -190,7 +190,7 @@
           (reduce (fn [code [name value]]
                     (str/replace code 
                                  (re-pattern (str "\\b" name "\\b")) 
-                                 (str "(" value ")")))
+                                 (str value )))
                   current-code
                   defines))))))
 
