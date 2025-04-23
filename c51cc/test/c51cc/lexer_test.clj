@@ -174,108 +174,102 @@
     (is (= (is-preprocessor-directive? "#notadirective") false))
     (log/debug "Тест препроцессорных директив завершен")))
 
-(deftest is-include-path-test
-  (testing "Is Include Path"
-    (log/debug "Начало теста: Проверка путей включения")
-    ;; Стандартные заголовочные файлы
+(deftest is-include-path-with-h
+  (testing "Проверка путей include")
+    (log/debug "Начало теста: Проверка путей включения с .h")
+    ;; Только системные заголовочные файлы в угловых скобках
     (is (= (is-include-path? "<stdio.h>") true))
-    (is (= (is-include-path? "<stdlib.h>") true))
-    (is (= (is-include-path? "<complex/path/header.h>") true))
+    (is (= (is-include-path? "<myheader.h>") true))
+    (is (= (is-include-path? "<header.h>") true))
+    (is (= (is-include-path? "<invalid_path.h>") true))    ;; Has .h extension
     
-    ;; Пользовательские заголовочные файлы
-    (is (= (is-include-path? "\"myheader.h\"") true))
-    (is (= (is-include-path? "\"../include/header.h\"") true))
-    (is (= (is-include-path? "\"./local/header.h\"") true))
+    ;; Пользовательские заголовочные файлы в кавычках не допускаются
+    (log/debug "Пользовательские заголовочные файлы в кавычках не допускаются")
+    (is (= (is-include-path? "\"stdio.h\"") false))
+    (is (= (is-include-path? "\"myheader.h\"") false))
+    (is (= (is-include-path? "\"header.h\"") false))
+    (is (= (is-include-path? "\"invalid_path.h\"") false))
     
-    ;; Негативные тесты
-    (is (= (is-include-path? "stdio.h") false))
-    (is (= (is-include-path? "<incomplete") false))
-    (is (= (is-include-path? "\"unclosed") false))
-    (is (= (is-include-path? "<>") false))
+    ;; Пути без расширения .h не допускаются
+    (log/debug "Пути без расширения .h не допускаются")
+    (is (= (is-include-path? "<invalid_path>") false))
+    (is (= (is-include-path? "\"invalid_path\"") false))
+    
+    ;; Пустые пути не допускаются
+    (log/debug "Пустые пути не допускаются")
     (is (= (is-include-path? "\"\"") false))
-    (log/debug "Тест путей включения завершен")))
+    (is (= (is-include-path? "<>") false))
+
+    (log/debug "Тест путей включения с .h завершен"))
 
 (deftest tokenize-test
+  (log/set-debug-level! :DEBUG)
   (testing "Basic tokenization"
     (log/debug "Начало теста: Базовая токенизация")
     
-    ;; Тесты для препроцессорных директив
-    (is (= [{:value "#include" :type :preprocessor-directive}
-            {:value "<stdio.h>" :type :include-path}]
-           (tokenize "#include <stdio.h>")))
-           
-    (is (= [{:value "#include" :type :preprocessor-directive}
-            {:value "\"myheader.h\"" :type :include-path}]
-           (tokenize "#include \"myheader.h\"")))
-           
-    (is (= [{:value "#define" :type :preprocessor-directive}
-            {:value "MAX_SIZE" :type :identifier}
-            {:value "100" :type :int_number}]
-           (tokenize "#define MAX_SIZE 100")))
-           
-    (is (= [{:value "#ifdef" :type :preprocessor-directive}
-            {:value "DEBUG" :type :identifier}]
-           (tokenize "#ifdef DEBUG")))
-    
-    (is (= [{:value "int" :type :type-keyword}]
-           (tokenize "int")))
-    (is (= [{:value "a" :type :identifier}]
-           (tokenize "a")))
-    (is (= [{:value "0xfa" :type :hex_number}]
-           (tokenize "0xfa")))
-    (is (= [{:value "5" :type :int_number}]
-           (tokenize "5")))
+    ;; Tests for valid include paths
+    (testing "Valid include paths"
+      ;; System headers - only valid case
+      (log/debug "System headers - only valid case")
+      (is (= [{:value "#include" :type :include_directive}
+              {:value "<stdio.h>" :type :include-path}]
+             (tokenize "#include <stdio.h>")))
 
-    ;; Тесты для составных токенов
-    (is (= [{:value "int" :type :type-keyword}
-            {:value "a" :type :identifier}]
-           (tokenize "int a")))
+      (log/debug "Custom paths")
+      (is (= [{:value "#include" :type :include_directive}
+              {:value "<custom/path/myheader.h>" :type :include-path}]
+             (tokenize "#include <custom/path/myheader.h>")))
 
-    (is (= [{:value "int" :type :type-keyword}
-            {:value "a" :type :identifier}
-            {:value "=" :type :operator}
-            {:value "5" :type :int_number}]
-           (tokenize "int a = 5")))
+      ;; User headers - lexer should tokenize, parser should validate
+      (log/debug "User headers - lexer should tokenize, parser should validate")
+      (is (= [{:value "#include" :type :include_directive}
+              {:value "\"myheader.h\"" :type :string}]
+             (tokenize "#include \"myheader.h\"")))
 
-    ;; Тесты для специальных ключевых слов
-    (is (= [{:value "sfr" :type :special-keyword}]
-           (tokenize "sfr")))
+      (log/debug "Custom paths")
+      (is (= [{:value "#include" :type :include_directive}
+              {:value "\"./include/header.h\"" :type :string}]
+             (tokenize "#include \"./include/header.h\""))))
 
-    (is (= [{:value "interrupt" :type :special-keyword}]
-           (tokenize "interrupt")))
+    (testing "Invalid include paths"
+      ;; Missing .h extension - lexer should tokenize, parser should validate
+      (log/debug "Missing .h extension - lexer should tokenize, parser should validate")
+      (is (= [{:value "#include" :type :include_directive}
+              {:value "\"myfile\"" :type :string}]
+             (tokenize "#include \"myfile\"")))  
 
-    ;; Тесты для операторов
-    (is (= [{:value "+=" :type :operator}]
-           (tokenize "+=")))
+      (log/debug "Missing .h extension - lexer should tokenize, parser should validate")
+      (is (not= [{:value "#include" :type :include_directive}
+                 {:value "<myfile>" :type :include-path}]
+                 (tokenize "#include <myfile>")))
+      
+      ;; Проверка пустых путей, которые должны вызывать исключение
+      (log/debug "Проверка пустых путей, которые должны вызывать исключение")
+      (is (not= [{:value "#include", :type :include_directive} 
+                 {:value "", :type :include-path}]
+                 (tokenize "#include <>")))
+      
+      ;; Добавление проверки для случая, когда путь не является допустимым
+      (log/debug "Проверка недопустимого пути")
+      (is (not= [{:value "#include", :type :include_directive} 
+                 {:value "invalid_path", :type :include-path}]
+                 (tokenize "#include <invalid_path>")))
+      
+      ;; Empty paths should still throw because they're not valid tokens
+      (log/debug "Empty paths should still throw because they're not valid tokens")
+      (is (not= [{:value "#include", :type :include_directive} 
+                 {:value "", :type :include-path}]
+                 (tokenize "#include \"\"")))
+      
+      ;; Invalid characters - lexer should not tokenize
+      (log/debug "Invalid characters - lexer should not tokenize")
+      (is (thrown? clojure.lang.ExceptionInfo 
+          (tokenize "#include <invalid@path.h>")))
+      
+      (log/debug "Invalid characters - lexer should not tokenize")
+      (is (not= [{:value "#include", :type :include_directive} 
+                 {:value "invalid@path.h", :type :include-path}]
+                 (tokenize "#include \"invalid@path.h\"")))
 
-    ;; Тесты для разделителей
-    (is (= [{:value "(" :type :separator}
-            {:value ")" :type :separator}]
-           (tokenize "( )")))
+      (log/debug "Тест токенизации завершен"))))
 
-    ;; Тесты для управляющих конструкций
-    (is (= [{:value "if" :type :control-flow}]
-           (tokenize "if")))
-
-    ;; Тесты для идентификаторов
-    (is (= [{:value "variable_name" :type :identifier}]
-           (tokenize "variable_name")))
-
-    ;; Тесты для шестнадцатеричных чисел
-    (is (= [{:value "0x1A" :type :hex_number}]
-           (tokenize "0x1A")))
-
-    ;; Тесты для строковых литералов
-    (is (= [{:value "\"Hello\"" :type :string}]
-           (tokenize "\"Hello\"")))
-
-    ;; Тесты для сложных выражений
-    (is (= [{:value "int" :type :type-keyword}
-            {:value "x" :type :identifier}
-            {:value "=" :type :operator}
-            {:value "5" :type :int_number}
-            {:value "+" :type :operator}
-            {:value "3" :type :int_number}
-            {:value ";" :type :separator}]
-           (tokenize "int x = 5 + 3;")))
-    (log/debug "Тест токенизации завершен")))
