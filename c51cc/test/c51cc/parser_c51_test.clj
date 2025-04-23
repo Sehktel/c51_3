@@ -6,6 +6,7 @@
             [c51cc.logger :as log]
             [c51cc.lexer :as lexer]
             [c51cc.parser :as parser]
+            [c51cc.preprocessor :as preprocessor]
             [clojure.stacktrace :as stacktrace])
   (:import (java.io File)))
 
@@ -26,8 +27,12 @@
   "Парсинг C-файла через лексер и парсер с расширенной диагностикой"
   [file]
   (log/debug "Парсинг файла:" (.getName file))
+  (log/set-debug-level! :TRACE)
+  (log/trace "Очищенное содержимое:" (preprocessor/remove-comments (read-file-content file)))
+  (log/set-debug-level! :INFO)
   (let [content (read-file-content file)
-        tokens  (lexer/tokenize content)
+        cleaned-content (preprocessor/remove-comments content)
+        tokens  (lexer/tokenize cleaned-content)
         _       (log/debug "Количество токенов:" (count tokens))
         result  (parser/parse tokens)]
     (log/info "Файл успешно распарсен:" (.getName file))
