@@ -158,17 +158,55 @@
           (recur new-code (conj processed-files filename)))
         current-code))))
 
+(defn- process-defines
+  "Обрабатывает директивы #define в коде.
+   
+   Параметры:
+   - code: исходный код
+   
+   Возвращает код с обработанными директивами #define"
+  [code]
+  (log/debug "Начало обработки директив #define")
+  (let [define-pattern #"#define\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+(.+)"]
+    (loop [current-code code
+           defines {}
+           iteration 0]
+      (if (> iteration 10)  ; Предотвращение бесконечного цикла
+        current-code
+        (if-let [[full-match name value] (re-find define-pattern current-code)]
+          (let [trimmed-value (str/trim value)
+                ;; Заменяем вложенные определения
+                resolved-value (reduce-kv 
+                                (fn [v k replacement]
+                                  (str/replace v (re-pattern (str "\\b" k "\\b")) 
+                                               (str "(" replacement ")")))
+                                trimmed-value
+                                defines)
+                new-code (str/replace-first current-code full-match "")]
+            (recur new-code 
+                   (assoc defines name resolved-value)
+                   (inc iteration)))
+          ;; Финальная замена всех определений
+          (reduce (fn [code [name value]]
+                    (str/replace code 
+                                 (re-pattern (str "\\b" name "\\b")) 
+                                 (str "(" value ")")))
+                  current-code
+                  defines))))))
+
 (defn preprocess
   "Основная функция предварительной обработки кода
 
   Выполняет следующие шаги:
   1. Удаление комментариев
   2. Обработка директив #include
-  3. Возможные будущие преобразования
+  3. Обработка директив #define
+  4. Возможные будущие преобразования
 
   Возвращает подготовленный к парсингу код"
   [code & {:keys [base-path] :or {base-path "."}}]
   (log/debug "Начало предварительной обработки исходного кода")
   (-> code
       remove-comments
-      (process-includes base-path)))
+      (process-includes base-path)
+      process-defines))
