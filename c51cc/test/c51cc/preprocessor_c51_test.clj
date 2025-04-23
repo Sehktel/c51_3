@@ -151,7 +151,6 @@
         header-content (read-file-content header-path)
         source-content (read-file-content source-path)
         
-        (log/info "Объединение файлов")
         ;; Объединение файлов
         merged-code (str header-content "\n" source-content)
         
