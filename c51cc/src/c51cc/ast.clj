@@ -111,13 +111,15 @@
         (let [tokens (lexer/tokenize preprocessed-code)]
           (log/info "Токенизация завершена")
           (log/debug "Количество токенов:" (count tokens))
-          (log/trace "Токены:\n" tokens)
+          (println "=== Токены ===")
+          (clojure.pprint/pprint tokens)
           
           (log/info "Stage 5: Построение AST")
           (let [ast (parser/parse tokens)]
             (log/info "Построение AST завершено")
-            (log/debug "Сложность AST:" (count ast))
-            (log/trace "Абстрактное синтаксическое дерево:\n" ast)
+            (log/debug "Сложность AST:" (count (:nodes ast)))
+            (println "=== AST ===")
+            (clojure.pprint/pprint ast)
             
             (log/info "=== Обработка файла успешно завершена ===")
             {:source-path source-path
@@ -144,6 +146,8 @@
         tokens (lexer/tokenize preprocessed-code)
         ast (parser/parse tokens)]
     (log/debug "AST успешно сгенерирован")
+    (println "Токены:" tokens)
+    (println "AST:" (with-out-str (clojure.pprint/pprint ast)))
     ast))
 
 (defn pretty-print-ast

@@ -41,9 +41,60 @@
 ;; Основная реализация парсера
 (defrecord C51Parser [tokens])
 
+(defn- ^:private internal-parse-parameters [tokens]
+  "Семантический парсинг параметров функции"
+  (log/debug "Начало семантического парсинга параметров")
+  
+  (loop [remaining tokens
+         parameters []]
+    (let [[current-token & rest] remaining]
+      (cond 
+        ;; Случай: пустые скобки () - пустой список параметров
+        (= (:value current-token) ")")
+        {:parameters parameters 
+         :tokens remaining}
+        
+        ;; Случай: void без параметров 
+        (and (or (= (:type current-token) :type-keyword)
+                 (= (:type current-token) :keyword))
+             (= (:value current-token) "void")
+             (= (:value (first rest)) ")"))
+        {:parameters [{:type :void_type_keyword 
+                       :name "void"}]
+         :tokens rest}
+        
+        ;; Случай: ()
+        (and (= (:value current-token) "(")
+             (= (:value (first rest)) ")"))
+        {:parameters []
+         :tokens rest}
 
+        ;; Парсинг типизированного параметра
+        (= (:type current-token) :type-keyword)
+        (let [[name-token & next-tokens] rest]
+          (when-not (= (:type name-token) :identifier)
+            (throw (ex-info "Некорректное имя параметра" 
+                             {:token name-token})))
+          
+          (recur 
+           (if (= (:value (first next-tokens)) ",")
+             (rest next-tokens)  ; Пропускаем запятую
+             next-tokens)
+           (conj parameters 
+                 {:type {:type :type-keyword
+                         :value (:value current-token)}
+                  :name {:type :identifier
+                         :value (:value name-token)}})))
+        
+        ;; Разделитель между параметрами
+        (= (:value current-token) ",")
+        (recur rest parameters)
+        
+        :else 
+        (throw (ex-info "Неожиданный токен в списке параметров" 
+                        {:token current-token}))))))
 
-(defn parser-parse-function-declaration [parser tokens]
+(defn parser-parse-function-declaration 
   "Улучшенный парсинг объявления функции
 
   Расширенная грамматика:
@@ -54,6 +105,7 @@
   - Поддержка вложенных блоков
   - Робастная обработка ошибок
   - Поддержка прерываний"
+  [parser tokens]
   (log/debug "Начало расширенного парсинга объявления функции")
   (log/trace "Входящие токены для объявления функции: " (pr-str (take 5 tokens)))
   
@@ -114,8 +166,10 @@
       
       (let [body-result (internal-parse-function-body after-brace)
             base-result {:type (:function-declaration ast-node-types)
-                         :return-type (:value type-token)
-                         :name (:value name-token)
+                         :return-type {:type :type-keyword
+                                       :value (:value type-token)}
+                         :name {:type :identifier
+                                :value (:value name-token)}
                          :parameters (:parameters parameters-result)
                          :body (:body body-result)
                          :tokens (:tokens body-result)}]
@@ -131,12 +185,13 @@
             result)
           base-result)))))
 
-(defn parser-parse-variable-declaration [parser tokens]
+(defn- ^:private parse-variable-declaration [tokens]
+  "Парсинг объявления переменной"
   (log/debug "Начало парсинга объявления переменной")
   (log/trace "Входящие токены для объявления переменной: " (pr-str (take 5 tokens)))
   
   (let [[type-token & remaining] tokens
-        [name-token & remaining] remaining]
+        [name-token & after-name] remaining]
     (when-not (and (= (:type type-token) :type-keyword)
                    (= (:type name-token) :identifier))
       (log/error "Ошибка при парсинге объявления переменной. Токены: " (pr-str tokens))
@@ -147,19 +202,14 @@
               " типа " (:value type-token))
     
     {:type (:variable-declaration ast-node-types)
-     :var-type (:value type-token)
+     :var-type (str (:value type-token))
      :name (:value name-token)
-     :tokens remaining}))
+     :tokens after-name}))
 
-(defn parser-parse-expression [parser tokens]
-  "Парсинг выражений
-
-  Теоретическая модель:
-  - Рекурсивный спуск для разбора выражений
-  - Поддержка арифметических и логических операций
-
-  Сложность: O(n), где n - длина выражения"
+(defn- ^:private parse-expression [tokens]
+  "Парсинг выражений с поддержкой сложных конструкций"
   (log/debug "Начало парсинга выражения")
+  
   (let [[first-token & remaining] tokens]
     (cond
       (= (:type first-token) :identifier)
@@ -172,110 +222,40 @@
        :value (:value first-token)
        :tokens remaining}
 
+      (= (:type first-token) :operator)
+      (let [left-expr (parse-expression remaining)
+            [operator & after-op] (:tokens left-expr)
+            right-expr (parse-expression after-op)]
+        {:type (:expression ast-node-types)
+         :value (str (:value left-expr) 
+                     (:value operator) 
+                     (:value right-expr))
+         :tokens (:tokens right-expr)})
+      
       :else
       (throw (ex-info "Неподдерживаемое выражение"
                       {:tokens tokens})))))
 
-;; Функция для создания парсера
-(defn create-parser
-  "Создание экземпляра парсера с заданными токенами"
-  [tokens]
-  (log/debug "Создание экземпляра парсера с заданными токенами")
-  (C51Parser. tokens))
-
-;; Главная функция парсинга
-(defn parse
-  "Основная функция парсинга, принимающая последовательность токенов
-
-   Архитектурные соображения:
-   - Абстракция над конкретной реализацией парсера
-   - Гибкость и расширяемость"
-  [tokens]  
-  (log/debug "Начало парсинга программы")
-  (let [parser (create-parser tokens)]
-    (parser-parse-program parser tokens)))
-
-(defn- ^:private internal-parse-parameters
-  "Парсинг параметров функции с расширенной логикой
-
-  Грамматика параметров:
-  - void без параметров
-  - список типизированных параметров
-
-  Теоретические аспекты:
-  - Поддержка различных сигнатур функций
-  - Гибкий синтаксический анализ
-  - Обработка краевых случаев"
-  [tokens]
-  (log/debug "Начало парсинга параметров")
-  (log/trace "Входящие токены:" (pr-str tokens))
+(defn- ^:private parse-assignment [tokens]
+  "Семантический парсинг присваивания"
+  (log/debug "Начало парсинга присваивания")
   
-  (loop [remaining tokens
-         parameters []]
-    (let [[current-token & rest] remaining]
-      (log/trace "Текущий токен:" (pr-str current-token))
-      (log/trace "Оставшиеся токены:" (pr-str rest))
-      
-      (cond 
-        ;; Случай: пустые скобки () - пустой список параметров
-        (= (:value current-token) ")")
-        (do 
-          (log/debug "Завершение парсинга параметров. Найдено параметров:" (count parameters))
-          {:parameters parameters 
-           :tokens remaining})
-        
-        ;; Случай: void без параметров 
-        (and (or (= (:type current-token) :type-keyword)
-                 (= (:type current-token) :keyword))
-             (= (:value current-token) "void")
-             (= (:value (first rest)) ")"))
-        (do 
-          (log/debug "Распознан void без параметров")
-          {:parameters [{:type :void_type_keyword :name "void"}]
-           :tokens rest})
-        
-        ;; Случай: ()
-        (and (= (:value current-token) "(")
-             (= (:value (first rest)) ")"))
-        (do 
-          (log/debug "Распознан пустой список параметров")
-          {:parameters []
-           :tokens rest})
+  (let [[left-token & after-left] tokens
+        [op-token & after-op] after-left
+        [right-token & after-right] after-op]
+    (when-not (and (= (:type left-token) :identifier)
+                   (= (:value op-token) "="))
+      (throw (ex-info "Некорректное присваивание"
+                      {:tokens tokens})))
+    
+    {:type (:assignment ast-node-types)
+     :left {:type (:identifier ast-node-types)
+            :value (:value left-token)}
+     :right (parse-expression (list right-token))
+     :tokens after-right}))
 
-        ;; Парсинг типизированного параметра
-        (= (:type current-token) :type-keyword)
-        (let [[name-token & next-tokens] rest]
-          (when-not (= (:type name-token) :identifier)
-            (throw (ex-info "Некорректное имя параметра" 
-                             {:token name-token})))
-          
-          (log/trace "Распознан параметр: тип " (:value current-token) 
-                     ", имя " (:value name-token))
-          
-          (recur 
-           (if (= (:value (first next-tokens)) ",")
-             (rest next-tokens)  ; Пропускаем запятую
-             next-tokens)
-           (conj parameters 
-                 {:type (:value current-token)
-                  :name (:value name-token)})))
-        
-        ;; Разделитель между параметрами
-        (= (:value current-token) ",")
-        (recur rest parameters)
-        
-        :else 
-        (throw (ex-info "Неожиданный токен в списке параметров" 
-                        {:token current-token}))))))
-
-(defn- ^:private internal-parse-function-body
-  "Парсинг тела функции с расширенной диагностикой
-
-  Теоретические аспекты:
-  - Отслеживание вложенности блоков
-  - Детальная обработка токенов
-  - Робастный синтаксический анализ"
-  [tokens]
+(defn- ^:private internal-parse-function-body [tokens]
+  "Парсинг тела функции с расширенной диагностикой"
   (log/debug "Начало парсинга тела функции")
   (log/trace "Входящие токены:" (pr-str tokens))
   
@@ -307,7 +287,23 @@
                :tokens rest}
               (recur rest new-depth (conj body-tokens current-token))))
           
-          ;; Обычный токен
+          ;; Объявление переменной
+          (= (:type current-token) :type-keyword)
+          (let [var-decl (parse-variable-declaration (cons current-token rest))]
+            (recur (:tokens var-decl) depth 
+                   (conj body-tokens var-decl)))
+          
+          ;; Выражение или присваивание
+          (or (= (:type current-token) :identifier)
+              (= (:type current-token) :int_number))
+          (let [expr (parse-expression (cons current-token rest))]
+            (recur (:tokens expr) depth 
+                   (conj body-tokens expr)))
+          
+          ;; Пропускаем разделители
+          (= (:value current-token) ";")
+          (recur rest depth body-tokens)
+          
           :else 
           (recur rest depth (conj body-tokens current-token)))))
     
@@ -326,25 +322,25 @@
 
 ;; Реализации парсера
 (defn parser-parse-program [parser tokens]
-  "Анализ программы как последовательности деклараций и определений функций
-
-  Теоретическое обоснование:
-  - Программа рассматривается как последовательность функций
-  - Поддерживаются только объявления функций"
-  (log/debug "Начало парсинга программы. Количество токенов: " (count tokens))
-  (log/trace "Первые 5 токенов: " (pr-str (take 5 tokens)))
+  "Семантический анализ программы с созданием полноценного AST"
+  (log/debug "Начало семантического парсинга программы")
+  
   (loop [remaining-tokens tokens
          parsed-nodes []]
     (if (empty? remaining-tokens)
-      (do 
-        (log/info "Парсинг программы завершен. Количество узлов: " (count parsed-nodes))
-        (log/debug "Узлы программы: " (pr-str parsed-nodes))
-        {:type (:program ast-node-types)
-         :nodes parsed-nodes})
-      (let [[current & _] remaining-tokens
-            result (do 
-                     (log/trace "Попытка парсинга функции")
-                     (parser-parse-function-declaration parser remaining-tokens))
+      {:type (:program ast-node-types)
+       :nodes parsed-nodes}
+      (let [result (parser-parse-function-declaration parser remaining-tokens)
             node (dissoc result :tokens)]
-        (log/trace "Распознан узел: " (pr-str node))
         (recur (:tokens result) (conj parsed-nodes node))))))
+
+(defn parse
+  "Основная функция парсинга с семантическим анализом
+
+   Ключевые особенности:
+   - Полный семантический анализ токенов
+   - Создание абстрактного синтаксического дерева (AST)
+   - Гибкая обработка различных конструкций языка"
+  [tokens]  
+  (log/debug "Начало семантического парсинга программы")
+  (parser-parse-program (C51Parser. tokens) tokens))
