@@ -147,13 +147,41 @@
     ast))
 
 (defn pretty-print-ast
-  "Красивая визуализация AST с расширенным форматированием"
+  "Расширенная визуализация AST с глубоким форматированием и анализом
+
+   Теоретические аспекты:
+   - Многоуровневая визуализация структуры
+   - Ограничение глубины для читаемости
+   - Семантическая аннотация узлов
+
+   Сложность: O(n), где n - количество узлов в AST"
   [ast]
-  (log/debug "Начало визуализации AST")
+  (log/debug "Начало расширенной визуализации AST")
   (with-out-str
     (pprint/pprint 
-     (update-in ast [:body] 
-                (fn [body] (take 10 body))))))
+     (let [processed-ast 
+           (update-in ast [:nodes] 
+                      (fn [nodes] 
+                        (mapv 
+                         (fn [node]
+                           (let [base-node 
+                                 (select-keys node 
+                                              [:type :name :return-type 
+                                               :parameters :body])]
+                             (cond-> base-node
+                               (:parameters base-node) 
+                               (update :parameters 
+                                       (fn [params] 
+                                         (take 10 params)))
+                               
+                               (:body base-node) 
+                               (update :body 
+                                       (fn [body] 
+                                         (take 100 body))))))
+                         (take 100 nodes))))]
+       {:type (:type processed-ast)
+        :total-nodes (count (:nodes ast))
+        :nodes (:nodes processed-ast)}))))
 
 (defn analyze-ast
   "Глубокий анализ AST с расширенной диагностикой"

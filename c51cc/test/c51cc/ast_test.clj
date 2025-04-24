@@ -191,8 +191,11 @@
       
       ;; Дополнительные проверки структуры
       (let [parsed-print (read-string pretty-print)]
-        (is (vector? parsed-print) "Pretty print должен быть читаемым вектором")
-        (is (< (count parsed-print) 11) "Должно быть не более 10 элементов в теле AST")))))
+        (is (map? parsed-print) "Pretty print должен быть картой")
+        (is (contains? parsed-print :type) "Карта должна содержать ключ :type")
+        (is (contains? parsed-print :total-nodes) "Карта должна содержать ключ :total-nodes")
+        (is (contains? parsed-print :nodes) "Карта должна содержать ключ :nodes")
+        (is (< (count (:nodes parsed-print)) 11) "Должно быть не более 10 узлов в AST")))))
 
 (defn -main
   "Точка входа для запуска тестов AST"
