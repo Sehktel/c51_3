@@ -1,116 +1,141 @@
-(ns c51cc.ast_test
-  "Модуль тестирования абстрактного синтаксического дерева (AST)"
+(ns c51cc.ast-test
+  "Модуль тестирования генерации и анализа абстрактного синтаксического дерева (AST)"
   (:require [clojure.test :refer :all]
             [c51cc.ast :as ast]
-            [c51cc.parser :as parser]
-            [c51cc.lexer :as lexer]
-            [c51cc.logger :as log]))
+            [c51cc.logger :as log]
+            [clojure.java.io :as io]))
 
-(deftest test-visualize-node
-  "Тестирование функции визуализации узла AST
+;; Вспомогательные функции для тестирования
+(defn- create-test-file 
+  "Создает временный тестовый файл с заданным содержимым"
+  [content]
+  (let [temp-file (java.io.File/createTempFile "c51cc_test" ".c")]
+    (spit temp-file content)
+    (.deleteOnExit temp-file)
+    temp-file))
 
-  Цели тестирования:
-  - Проверка корректности обработки различных типов узлов
-  - Валидация рекурсивного обхода дерева
-  - Отсутствие исключений при различных входных данных"
-  (testing "Визуализация узла программы"
-    (let [sample-program {:type :program
-                          :nodes [{:type :function-declaration
-                                   :name "main"
-                                   :return-type "int"
-                                   :parameters []
-                                   :body []}]}]
-      (is (string? 
-            (ast/visualize-node sample-program 0)) 
-          "Визуализация узла программы должна возвращать строку")))
-  
-  (testing "Визуализация узла объявления функции"
-    (let [function-node {:type :function-declaration
-                         :name "example_func"
-                         :return-type "void"
-                         :parameters [{:type "int" :name "param1"}
-                                      {:type "char" :name "param2"}]
-                         :body [{:value "return"} {:value "0"}]}]
-      (is (string? 
-            (ast/visualize-node function-node 0)) 
-          "Визуализация узла функции должна возвращать строку")))
-  
-  (testing "Визуализация узла объявления переменной"
-    (let [variable-node {:type :variable-declaration
-                         :name "test_var"
-                         :var-type "int"}]
-      (is (string? 
-            (ast/visualize-node variable-node 0)) 
-          "Визуализация узла переменной должна возвращать строку")))
-  
-  (testing "Визуализация узла выражения"
-    (let [expression-node {:type :expression
-                           :value "42"}]
-      (is (string? 
-            (ast/visualize-node expression-node 0)) 
-          "Визуализация узла выражения должна возвращать строку"))))
+(defn- cleanup-test-file 
+  "Удаляет временный тестовый файл"
+  [^java.io.File file]
+  (when (and file (.exists file))
+    (.delete file)))
 
-(deftest test-print-ast-tree
-  "Тестирование функции печати AST дерева
+;; Тестовые константы
+(def ^:private simple-c-code 
+  "Простой тестовый код на языке C
+   для проверки базовой функциональности AST"
+  "#include <stdio.h>
 
-  Теоретическое обоснование:
-  - Проверка интеграции с лексером и парсером
-  - Валидация обработки различных входных данных"
-  (testing "Печать AST дерева из строки кода"
-    (let [sample-code "int main() { return 0; }"]
-      (is (do 
-            (ast/print-ast-tree sample-code)
-            true) "Печать AST дерева из строки кода не должна вызывать исключений")))
+int main() {
+    int x = 10;
+    printf(\"Hello, World! %d\", x);
+    return 0;
+}")
+
+(def ^:private complex-c-code
+  "Более сложный тестовый код с различными конструкциями"
+  "#include <stdlib.h>
+#define MAX_SIZE 100
+
+void process_array(int arr[], int size) {
+    for (int i = 0; i < size; i++) {
+        if (arr[i] > MAX_SIZE) {
+            arr[i] = MAX_SIZE;
+        }
+    }
+}
+
+int main() {
+    int numbers[MAX_SIZE];
+    int count = 0;
+    
+    while (count < MAX_SIZE) {
+        numbers[count] = rand() % 200;
+        count++;
+    }
+    
+    process_array(numbers, MAX_SIZE);
+    return 0;
+}")
+
+(deftest test-generate-ast
+  "Тест генерации абстрактного синтаксического дерева"
+  (testing "Генерация AST для простого кода"
+    (let [test-file (create-test-file simple-c-code)
+          result (ast/process-c-file (.getAbsolutePath test-file))]
+      (is (map? result) "Результат должен быть картой")
+      (is (contains? result :ast) "Результат должен содержать AST")
+      (is (vector? (:ast result)) "AST должен быть вектором")
+      (is (pos? (count (:ast result))) "AST не должен быть пустым")
+      (cleanup-test-file test-file)))
   
-  (testing "Печать AST дерева из токенов"
-    (let [tokens (lexer/tokenize "int main() { return 0; }")]
-      (is (do 
-            (ast/print-ast-tree tokens)
-            true) "Печать AST дерева из токенов не должна вызывать исключений"))))
+  (testing "Генерация AST для сложного кода"
+    (let [test-file (create-test-file complex-c-code)
+          result (ast/process-c-file (.getAbsolutePath test-file))]
+      (is (map? result) "Результат должен быть картой")
+      (is (contains? result :ast) "Результат должен содержать AST")
+      (is (vector? (:ast result)) "AST должен быть вектором")
+      (is (pos? (count (:ast result))) "AST не должен быть пустым")
+      (cleanup-test-file test-file))))
+
+(deftest test-ast-analysis
+  "Тест анализа абстрактного синтаксического дерева"
+  (testing "Анализ AST простого кода"
+    (let [test-file (create-test-file simple-c-code)
+          result (ast/process-c-file (.getAbsolutePath test-file))
+          analysis (ast/analyze-ast (:ast result))]
+      (is (map? analysis) "Результат анализа должен быть картой")
+      (is (contains? analysis :node-types) "Анализ должен содержать типы узлов")
+      (is (contains? analysis :total-nodes) "Анализ должен содержать общее количество узлов")
+      (is (contains? analysis :max-depth) "Анализ должен содержать максимальную глубину")
+      (is (pos? (:total-nodes analysis)) "Должны быть узлы в AST")
+      (cleanup-test-file test-file)))
+  
+  (testing "Анализ AST сложного кода"
+    (let [test-file (create-test-file complex-c-code)
+          result (ast/process-c-file (.getAbsolutePath test-file))
+          analysis (ast/analyze-ast (:ast result))]
+      (is (map? analysis) "Результат анализа должен быть картой")
+      (is (contains? analysis :node-types) "Анализ должен содержать типы узлов")
+      (is (contains? analysis :total-nodes) "Анализ должен содержать общее количество узлов")
+      (is (contains? analysis :max-depth) "Анализ должен содержать максимальную глубину")
+      (is (pos? (:total-nodes analysis)) "Должны быть узлы в AST")
+      (cleanup-test-file test-file))))
 
 (deftest test-pretty-print-ast
-  "Тестирование функции детальной печати AST
-
-  Преимущества:
-  - Проверка совместимости с pretty-print
-  - Валидация обработки сложных структур"
-  (testing "Pretty-print AST из строки кода"
-    (let [sample-code "int main() { int x = 10; return x; }"]
-      (is (do 
-            (ast/pretty-print-ast sample-code)
-            true) "Детальная печать AST не должна вызывать исключений")))
+  "Тест визуализации абстрактного синтаксического дерева"
+  (testing "Визуализация AST простого кода"
+    (let [test-file (create-test-file simple-c-code)
+          result (ast/process-c-file (.getAbsolutePath test-file))
+          pretty-print (ast/pretty-print-ast (:ast result))]
+      (is (string? pretty-print) "Визуализация должна быть строкой")
+      (is (pos? (count pretty-print)) "Визуализация не должна быть пустой")
+      (cleanup-test-file test-file)))
   
-  (testing "Pretty-print AST из токенов"
-    (let [tokens (lexer/tokenize "int main() { int x = 10; return x; }")]
-      (is (do 
-            (ast/pretty-print-ast tokens)
-            true) "Детальная печать AST из токенов не должна вызывать исключений"))))
+  (testing "Визуализация AST сложного кода"
+    (let [test-file (create-test-file complex-c-code)
+          result (ast/process-c-file (.getAbsolutePath test-file))
+          pretty-print (ast/pretty-print-ast (:ast result))]
+      (is (string? pretty-print) "Визуализация должна быть строкой")
+      (is (pos? (count pretty-print)) "Визуализация не должна быть пустой")
+      (cleanup-test-file test-file))))
 
-(deftest test-ast-edge-cases
-  "Тестирование краевых случаев AST
-
-  Методология:
-  - Проверка обработки пограничных и неожиданных входных данных"
-  (testing "Пустая программа"
-    (let [empty-code ""]
-      (is (try 
-            (ast/print-ast-tree empty-code)
-            true
-            (catch Exception e false)) "Обработка пустой программы")))
+(deftest test-error-handling
+  "Тест обработки ошибок при генерации AST"
+  (testing "Обработка несуществующего файла"
+    (is (thrown? Exception 
+                 (ast/process-c-file "/path/to/nonexistent/file.c"))
+        "Должно быть выброшено исключение для несуществующего файла"))
   
-;;   (testing "Программа с комментариями"
-;;     (let [commented-code "// Простой комментарий\nint main() { return 0; }"]
-;;       (is (do 
-;;             (ast/print-ast-tree commented-code)
-;;             true) "Обработка кода с комментариями")))
-)
+  (testing "Обработка пустого файла"
+    (let [empty-file (create-test-file "")]
+      (is (thrown? Exception 
+                   (ast/process-c-file (.getAbsolutePath empty-file)))
+          "Должно быть выброшено исключение для пустого файла")
+      (cleanup-test-file empty-file))))
 
-;; Настройка логирования для тестов
-(defn setup-test-logging []
-  (log/set-debug-level! :DEBUG))
-
-;; Выполнение настройки перед запуском тестов
-(setup-test-logging)
-
-;; Запуск тестов
-;; (run-tests 'c51cc.ast_test)
+(defn -main
+  "Точка входа для запуска тестов AST"
+  [& args]
+  (log/set-level! :DEBUG)
+  (run-tests 'c51cc.ast-test)) 
