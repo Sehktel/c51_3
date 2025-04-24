@@ -8,18 +8,8 @@
 
 ;; Парсер для языка C51 - абстракция синтаксического анализа
 
-(declare parse-parameters parse-function-body)
-(declare parse-function-declaration parse-variable-declaration)
+(declare internal-parse-parameters internal-parse-function-body)
 (declare ast-node-types create-parser parse)
-(declare parse-parameters)
-(declare parse-function-body)
-(declare parse-function-declaration)
-(declare parse-variable-declaration)
-(declare parse-expression)
-(declare parse-program)
-(declare ast-node-types)
-(declare create-parser)
-(declare parse)
 
 (def ^:dynamic *current-debug-level* 
   "Динамическая переменная для текущего уровня логирования.
@@ -38,185 +28,153 @@
    :preprocessor-directive :preprocessor-directive
    :include-directive :include-directive})
 
-;; Протокол для парсинга различных конструкций языка
-(defprotocol ASTParser
-  "Протокол для парсинга различных синтаксических конструкций"
-  (parse-program [this tokens] "Парсинг всей программы")
-  (parse-function-declaration [this tokens] "Парсинг объявления функции")
-  (parse-variable-declaration [this tokens] "Парсинг объявления переменной")
-  (parse-expression [this tokens] "Парсинг выражения")
-  (parse-preprocessor-directive [this tokens] "Парсинг препроцессорной директивы"))
+;; Объявления функций для парсинга
+(declare parser-parse-program)
+(declare parser-parse-function-declaration)
+(declare parser-parse-variable-declaration)
+(declare parser-parse-expression)
+(declare internal-parse-parameters)
+(declare internal-parse-function-body)
+(declare create-parser)
+(declare parse)
 
 ;; Основная реализация парсера
-(defrecord C51Parser [tokens]
-  ASTParser
-  (parse-program [this tokens]
-    "Анализ программы как последовательности деклараций, определений и директив
-
-    Теоретическое обоснование:
-    - Программа рассматривается как последовательность верхнеуровневых конструкций
-    - Поддерживаются препроцессорные директивы и определения"
-    (log/debug "Начало парсинга программы. Количество токенов: " (count tokens))
-    (log/trace "Первые 5 токенов: " (pr-str (take 5 tokens)))
-    (loop [remaining-tokens tokens
-           parsed-nodes []]
-      (if (empty? remaining-tokens)
-        (do 
-          (log/info "Парсинг программы завершен. Количество узлов: " (count parsed-nodes))
-          (log/debug "Узлы программы: " (pr-str parsed-nodes))
-          {:type (:program ast-node-types)
-           :nodes parsed-nodes})
-        (let [[current & _] remaining-tokens
-              result (cond
-                      ;; Обработка препроцессорных директив
-                      (= (:type current) :preprocessor-directive)
-                      (do 
-                        (log/debug "Обнаружена препроцессорная директива")
-                        (parse-preprocessor-directive this remaining-tokens))
-                      
-                      ;; Обработка остальных конструкций
-                      :else
-                      (do 
-                        (log/trace "Попытка парсинга функции")
-                        (parse-function-declaration this remaining-tokens)))
-              node (dissoc result :tokens)]
-          (log/trace "Распознан узел: " (pr-str node))
-          (recur (:tokens result) (conj parsed-nodes node))))))
+(defrecord C51Parser [tokens])
 
 
-  (parse-function-declaration [this tokens]
-    "Улучшенный парсинг объявления функции
 
-    Расширенная грамматика:
-    function-declaration ::= type-keyword identifier '(' parameters? ')' interrupt? interrupt-number? '{' function-body '}'
+(defn parser-parse-function-declaration [parser tokens]
+  "Улучшенный парсинг объявления функции
 
-    Семантический анализ:
-    - Гибкий парсинг параметров
-    - Поддержка вложенных блоков
-    - Робастная обработка ошибок
-    - Поддержка прерываний"
-    (log/debug "Начало расширенного парсинга объявления функции")
-    (log/trace "Входящие токены для объявления функции: " (pr-str (take 5 tokens)))
-    
-    (let [[type-token & remaining] tokens
-          [name-token & after-name] remaining
-          [open-paren & after-paren] after-name]
-      
-      (when-not (and (= (:type type-token) :type-keyword)
-                     (= (:type name-token) :identifier)
-                     (= (:value open-paren) "("))
-        (log/error "Некорректное начало объявления функции. Токены: " (pr-str tokens))
-        (throw (ex-info "Некорректное начало объявления функции" 
-                        {:tokens tokens})))
-      
-      (log/debug "Распознан тип функции: " (:value type-token) 
-                 ", имя функции: " (:value name-token))
-      
-      (let [parameters-result (parse-parameters after-paren)
-            tokens-after-params (:tokens parameters-result)
-            
-            ;; Проверка на ключевое слово interrupt и его номер
-            interrupt-processing 
-            (loop [tokens tokens-after-params
-                   acc {:has-interrupt false}]
-              (if (empty? tokens)
-                acc
-                (let [token (first tokens)]
-                  (cond 
-                    (= (:value token) "interrupt")
-                    (do 
-                      (log/debug "Обнаружено ключевое слово interrupt")
-                      (recur (rest tokens) (assoc acc :has-interrupt true)))
-                    
-                    (and (:has-interrupt acc)
-                         (= (:type token) :int_number))
-                    (do 
-                      (log/debug "Распознан номер прерывания: " (:value token))
-                      (recur (rest tokens) 
-                             (assoc acc 
-                                    :interrupt-number 
-                                    (Integer/parseInt (:value token)))))
-                    
-                    (= (:value token) "{")
-                    (reduced acc)
-                    
-                    :else
-                    (recur (rest tokens) acc)))))
-            
-            ;; Поиск открывающей фигурной скобки
-            [open-brace & after-brace] (drop-while #(not= (:value %) "{") 
-                                                   tokens-after-params)]
-        
-        (when-not (= (:value open-brace) "{")
-          (log/error "Ожидается открывающая фигурная скобка. Токены: " 
-                     (pr-str tokens-after-params))
-          (throw (ex-info "Ожидается открывающая фигурная скобка" 
-                          {:tokens tokens-after-params})))
-        
-        (let [body-result (parse-function-body after-brace)
-              base-result {:type (:function-declaration ast-node-types)
-                           :return-type (:value type-token)
-                           :name (:value name-token)
-                           :parameters (:parameters parameters-result)
-                           :body (:body body-result)
-                           :tokens (:tokens body-result)}]
-          
-          (log/trace "Распознана функция:" (:value name-token) 
-                     ", параметры: " (pr-str (:parameters parameters-result)))
-          
-          (if (:has-interrupt interrupt-processing)
-            (let [result (assoc base-result 
-                                :interrupt-number (:interrupt-number interrupt-processing))]
-              (log/debug "Функция с прерыванием: " (:name result) 
-                         ", номер прерывания: " (:interrupt-number result))
-              result)
-            base-result))))
+  Расширенная грамматика:
+  function-declaration ::= type-keyword identifier '(' parameters? ')' interrupt? interrupt-number? '{' function-body '}'
+
+  Семантический анализ:
+  - Гибкий парсинг параметров
+  - Поддержка вложенных блоков
+  - Робастная обработка ошибок
+  - Поддержка прерываний"
+  (log/debug "Начало расширенного парсинга объявления функции")
+  (log/trace "Входящие токены для объявления функции: " (pr-str (take 5 tokens)))
   
-  (parse-variable-declaration [tokens]
-    (log/debug "Начало парсинга объявления переменной")
-    (log/trace "Входящие токены для объявления переменной: " (pr-str (take 5 tokens)))
+  (let [[type-token & remaining] tokens
+        [name-token & after-name] remaining
+        [open-paren & after-paren] after-name]
     
-    (let [[type-token & remaining] tokens
-          [name-token & remaining] remaining]
-      (when-not (and (= (:type type-token) :type-keyword)
-                     (= (:type name-token) :identifier))
-        (log/error "Ошибка при парсинге объявления переменной. Токены: " (pr-str tokens))
-        (throw (ex-info "Некорректное объявление переменной"
-                        {:tokens tokens})))
-
-      (log/info "Распознана переменная: " (:value name-token) 
-                " типа " (:value type-token))
+    (when-not (and (= (:type type-token) :type-keyword)
+                   (= (:type name-token) :identifier)
+                   (= (:value open-paren) "("))
+      (log/error "Некорректное начало объявления функции. Токены: " (pr-str tokens))
+      (throw (ex-info "Некорректное начало объявления функции" 
+                      {:tokens tokens})))
+    
+    (log/debug "Распознан тип функции: " (:value type-token) 
+               ", имя функции: " (:value name-token))
+    
+    (let [parameters-result (internal-parse-parameters after-paren)
+          tokens-after-params (:tokens parameters-result)
+          
+          ;; Проверка на ключевое слово interrupt и его номер
+          interrupt-processing 
+          (loop [tokens tokens-after-params
+                 acc {:has-interrupt false}]
+            (if (empty? tokens)
+              acc
+              (let [token (first tokens)]
+                (cond 
+                  (= (:value token) "interrupt")
+                  (do 
+                    (log/debug "Обнаружено ключевое слово interrupt")
+                    (recur (rest tokens) (assoc acc :has-interrupt true)))
+                  
+                  (and (:has-interrupt acc)
+                       (= (:type token) :int_number))
+                  (do 
+                    (log/debug "Распознан номер прерывания: " (:value token))
+                    (recur (rest tokens) 
+                           (assoc acc 
+                                  :interrupt-number 
+                                  (Integer/parseInt (:value token)))))
+                  
+                  (= (:value token) "{")
+                  (reduced acc)
+                  
+                  :else
+                  (recur (rest tokens) acc)))))
+          
+          ;; Поиск открывающей фигурной скобки
+          [open-brace & after-brace] (drop-while #(not= (:value %) "{") 
+                                                 tokens-after-params)]
       
-      {:type (:variable-declaration ast-node-types)
-       :var-type (:value type-token)
-       :name (:value name-token)
-       :tokens remaining}))
+      (when-not (= (:value open-brace) "{")
+        (log/error "Ожидается открывающая фигурная скобка. Токены: " 
+                   (pr-str tokens-after-params))
+        (throw (ex-info "Ожидается открывающая фигурная скобка" 
+                        {:tokens tokens-after-params})))
+      
+      (let [body-result (internal-parse-function-body after-brace)
+            base-result {:type (:function-declaration ast-node-types)
+                         :return-type (:value type-token)
+                         :name (:value name-token)
+                         :parameters (:parameters parameters-result)
+                         :body (:body body-result)
+                         :tokens (:tokens body-result)}]
+        
+        (log/trace "Распознана функция:" (:value name-token) 
+                   ", параметры: " (pr-str (:parameters parameters-result)))
+        
+        (if (:has-interrupt interrupt-processing)
+          (let [result (assoc base-result 
+                              :interrupt-number (:interrupt-number interrupt-processing))]
+            (log/debug "Функция с прерыванием: " (:name result) 
+                       ", номер прерывания: " (:interrupt-number result))
+            result)
+          base-result)))))
+
+(defn parser-parse-variable-declaration [parser tokens]
+  (log/debug "Начало парсинга объявления переменной")
+  (log/trace "Входящие токены для объявления переменной: " (pr-str (take 5 tokens)))
   
-  (parse-expression
-    "Парсинг выражений
+  (let [[type-token & remaining] tokens
+        [name-token & remaining] remaining]
+    (when-not (and (= (:type type-token) :type-keyword)
+                   (= (:type name-token) :identifier))
+      (log/error "Ошибка при парсинге объявления переменной. Токены: " (pr-str tokens))
+      (throw (ex-info "Некорректное объявление переменной"
+                      {:tokens tokens})))
 
-    Теоретическая модель:
-    - Рекурсивный спуск для разбора выражений
-    - Поддержка арифметических и логических операций
+    (log/info "Распознана переменная: " (:value name-token) 
+              " типа " (:value type-token))
+    
+    {:type (:variable-declaration ast-node-types)
+     :var-type (:value type-token)
+     :name (:value name-token)
+     :tokens remaining}))
 
-    Сложность: O(n), где n - длина выражения"
-    [this tokens]
-    (log/debug "Начало парсинга выражения")
-    (let [[first-token & remaining] tokens]
-      (cond
-        (= (:type first-token) :identifier)
-        {:type (:expression ast-node-types)
-         :value (:value first-token)
-         :tokens remaining}
+(defn parser-parse-expression [parser tokens]
+  "Парсинг выражений
 
-        (= (:type first-token) :int_number)
-        {:type (:expression ast-node-types)
-         :value (:value first-token)
-         :tokens remaining}
+  Теоретическая модель:
+  - Рекурсивный спуск для разбора выражений
+  - Поддержка арифметических и логических операций
 
-        :else
-        (throw (ex-info "Неподдерживаемое выражение"
-                        {:tokens tokens})))))))
+  Сложность: O(n), где n - длина выражения"
+  (log/debug "Начало парсинга выражения")
+  (let [[first-token & remaining] tokens]
+    (cond
+      (= (:type first-token) :identifier)
+      {:type (:expression ast-node-types)
+       :value (:value first-token)
+       :tokens remaining}
+
+      (= (:type first-token) :int_number)
+      {:type (:expression ast-node-types)
+       :value (:value first-token)
+       :tokens remaining}
+
+      :else
+      (throw (ex-info "Неподдерживаемое выражение"
+                      {:tokens tokens})))))
 
 ;; Функция для создания парсера
 (defn create-parser
@@ -235,9 +193,9 @@
   [tokens]  
   (log/debug "Начало парсинга программы")
   (let [parser (create-parser tokens)]
-    (parse-program parser tokens)))
+    (parser-parse-program parser tokens)))
 
-(defn- parse-parameters
+(defn- ^:private internal-parse-parameters
   "Парсинг параметров функции с расширенной логикой
 
   Грамматика параметров:
@@ -310,7 +268,7 @@
         (throw (ex-info "Неожиданный токен в списке параметров" 
                         {:token current-token}))))))
 
-(defn- parse-function-body
+(defn- ^:private internal-parse-function-body
   "Парсинг тела функции с расширенной диагностикой
 
   Теоретические аспекты:
@@ -365,3 +323,28 @@
         "Ошибка при парсинге тела функции" 
         {:original-exception e
          :tokens tokens})))))
+
+;; Реализации парсера
+(defn parser-parse-program [parser tokens]
+  "Анализ программы как последовательности деклараций и определений функций
+
+  Теоретическое обоснование:
+  - Программа рассматривается как последовательность функций
+  - Поддерживаются только объявления функций"
+  (log/debug "Начало парсинга программы. Количество токенов: " (count tokens))
+  (log/trace "Первые 5 токенов: " (pr-str (take 5 tokens)))
+  (loop [remaining-tokens tokens
+         parsed-nodes []]
+    (if (empty? remaining-tokens)
+      (do 
+        (log/info "Парсинг программы завершен. Количество узлов: " (count parsed-nodes))
+        (log/debug "Узлы программы: " (pr-str parsed-nodes))
+        {:type (:program ast-node-types)
+         :nodes parsed-nodes})
+      (let [[current & _] remaining-tokens
+            result (do 
+                     (log/trace "Попытка парсинга функции")
+                     (parser-parse-function-declaration parser remaining-tokens))
+            node (dissoc result :tokens)]
+        (log/trace "Распознан узел: " (pr-str node))
+        (recur (:tokens result) (conj parsed-nodes node))))))
