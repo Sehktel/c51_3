@@ -28,6 +28,16 @@
   [level]
   (alter-var-root #'*current-debug-level* (constantly level)))
 
+(defn log-level! 
+  "Устанавливает глобальный уровень логирования.
+   
+   Параметры:
+   - level: Ключевое слово, определяющее уровень логирования
+   
+   Возвращает установленный уровень логирования."
+  [level]
+  (alter-var-root #'*current-debug-level* (constantly level)))
+  
 (defn- can-log? 
   "Проверяет, можно ли логировать сообщение с учетом текущего уровня.
    
