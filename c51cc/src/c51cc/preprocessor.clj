@@ -194,6 +194,64 @@
                   current-code
                   defines))))))
 
+(defn- process-conditional-macros
+  "Обрабатывает условные препроцессорные директивы #ifdef, #ifndef, #endif.
+   
+   Параметры:
+   - code: исходный код
+   - defined-macros: множество определенных макросов
+   
+   Возвращает код после обработки условных директив"
+  [code defined-macros]
+  (log/debug "Начало обработки условных препроцессорных директив")
+  (let [lines (str/split-lines code)]
+    (loop [processed-lines []
+           remaining-lines lines
+           active-stack []
+           current-macros defined-macros]
+      (if (empty? remaining-lines)
+        (str/join "\n" processed-lines)
+        (let [line (first remaining-lines)
+              trimmed-line (str/trim line)]
+          (cond
+            ;; Обработка #ifdef
+            (str/starts-with? trimmed-line "#ifdef")
+            (let [macro-name (str/trim (subs trimmed-line 7))]
+              (recur processed-lines 
+                     (rest remaining-lines)
+                     (conj active-stack (contains? current-macros macro-name))
+                     current-macros))
+            
+            ;; Обработка #ifndef
+            (str/starts-with? trimmed-line "#ifndef")
+            (let [macro-name (str/trim (subs trimmed-line 8))]
+              (recur processed-lines 
+                     (rest remaining-lines)
+                     (conj active-stack (not (contains? current-macros macro-name)))
+                     current-macros))
+            
+            ;; Обработка #endif
+            (= trimmed-line "#endif")
+            (recur processed-lines 
+                   (rest remaining-lines)
+                   (vec (butlast active-stack))
+                   current-macros)
+            
+            ;; Добавление строки, если все условия активны
+            (or (empty? active-stack) 
+                (every? true? active-stack))
+            (recur (conj processed-lines line)
+                   (rest remaining-lines)
+                   active-stack
+                   current-macros)
+            
+            ;; Пропуск строки, если какое-либо условие неактивно
+            :else
+            (recur processed-lines 
+                   (rest remaining-lines)
+                   active-stack
+                   current-macros)))))))
+
 (defn preprocess
   "Основная функция предварительной обработки кода
 
@@ -201,12 +259,15 @@
   1. Удаление комментариев
   2. Обработка директив #include
   3. Обработка директив #define
-  4. Возможные будущие преобразования
+  4. Обработка условных препроцессорных директив (#ifdef, #ifndef, #endif)
+  5. Возможные будущие преобразования
 
   Возвращает подготовленный к парсингу код"
-  [code & {:keys [base-path] :or {base-path "."}}]
+  [code & {:keys [base-path defined-macros] 
+           :or {base-path "." defined-macros #{}}}]
   (log/debug "Начало предварительной обработки исходного кода")
   (-> code
       remove-comments
       (process-includes base-path)
-      process-defines))
+      process-defines
+      (process-conditional-macros defined-macros)))

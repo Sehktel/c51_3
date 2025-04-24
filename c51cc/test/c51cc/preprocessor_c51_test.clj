@@ -11,7 +11,7 @@
 (defn- log-environment-variables 
   "Логирование переменных окружения для отладки"
   []
-  (let [env-vars ["REG2051_H" "FILE_C" "INCLUDE_PATH"]]
+  (let [env-vars ["FILE_C" "INCLUDE_PATH"]]
     (doseq [var-name env-vars]
       (log/info (str "Переменная окружения " var-name ": " 
                      (or (System/getenv var-name) "НЕ УСТАНОВЛЕНА"))))))
@@ -35,26 +35,6 @@
     
     ;; Возвращаем первый существующий файл
     (first (filter #(.exists %) search-paths))))
-
-(defn- get-header-file-path 
-  "Получает путь к заголовочному файлу из переменной окружения"
-  []
-  (log-environment-variables)
-  (let [header-file (System/getenv "REG2051_H")]
-    (when-not header-file
-      (log/error "Переменная окружения REG2051_H не установлена")
-      (throw (ex-info "Переменная окружения REG2051_H не установлена" {})))
-    
-    ;; Дополнительная проверка существования файла
-    (let [header-path (io/file header-file)]
-      (when-not (.exists header-path)
-        (log/error (str "Файл не существует: " header-file))
-        (throw (ex-info (str "Файл не найден: " header-file)
-                        {:path header-file
-                         :absolute-path (.getAbsolutePath header-path)})))
-      
-      (log/debug (str "Получен путь к заголовочному файлу: " header-file))
-      header-file)))
 
 (defn- get-source-file-path 
   "Получает путь к исходному файлу из переменной окружения"
@@ -141,56 +121,86 @@
     Полный цикл обработки файла с расширенной диагностикой"
   []
   (log/info "Начало полного цикла обработки файла")
-  
-  ;; Логирование переменных окружения перед началом
-  (log-environment-variables)
-  
-  (let [header-path (get-header-file-path)
-        source-path (get-source-file-path)
-        include-path (or (System/getenv "INCLUDE_PATH") 
-                         (System/getProperty "user.dir"))
-        
-        ;; Чтение файлов с расширенной обработкой ошибок
-        header-content (read-file-content header-path)
-        source-content (read-file-content source-path)
-        
-        ;; Объединение файлов
-        merged-code (str header-content "\n" source-content)
-        
-        ;; Препроцессинг с кастомной функцией чтения включаемых файлов
-        preprocessed-code (with-redefs [preprocessor/read-include-file custom-read-include-file]
-                            (preprocessor/preprocess merged-code :base-path include-path))]
+  (log/info "Stage 1: Подготовка и идентификация файлов")
 
-    (log/set-debug-level! :DEBUG)
-    (log/debug (str "\n\n\n Объединение файлов: \n\n\n" 
-                    "header-content: \n\n\n " header-content "\n" 
-                    "source-content: \n\n\n " source-content))
-    (log/debug (str "\n\n\n Препроцессинг: \n\n\n" preprocessed-code))
-    (log/debug (str "\n\n\n Токенизация: \n\n\n"))
+  (log/set-debug-level! :DEBUG)
+  (log/info (get-source-file-path))  
+
+  (let [source-path (get-source-file-path)
+        include-path (or (System/getenv "INCLUDE_PATH") 
+                         (System/getProperty "user.dir"))]
     
-    ;; Токенизация и парсинг
-    (let [tokens (lexer/tokenize preprocessed-code)
-          ast (parser/parse tokens)]
+    ;; 1.a Печать полного пути к исходному файлу
+    (log/info "Полный путь к исходному файлу:" (.getAbsolutePath (io/file source-path)))
+    (log/debug "Путь включения:" include-path)
+    
+    ;; Стадия 2: Чтение и подготовка содержимого файлов
+    (log/info "Stage 2: Чтение и подготовка содержимого файлов")
+    (let [source-content (read-file-content source-path)
+          
+          ;; 2.1 Печать содержимого исходного файла
+          _ (do 
+              (log/info "Размер исходного файла:" (count source-content) "байт")
+              (log/trace "Содержимое исходного файла:\n" source-content))
+          
+          ;; Препроцессинг с кастомной функцией чтения включаемых файлов
+          preprocessed-code (with-redefs [preprocessor/read-include-file 
+                                          (fn [filename base-path]
+                                            (let [include-file (custom-read-include-file filename base-path)]
+                                              ;; 1.b Печать полного пути к включаемому заголовочному файлу
+                                              (log/info "Полный путь к включаемому файлу:" 
+                                                       (-> (io/file base-path filename) 
+                                                           .getAbsolutePath))
+                                              ;; 2.2 Печать содержимого заголовочного файла
+                                              (log/trace "Содержимое включаемого файла:\n" include-file)
+                                              include-file))]
+            
+            ;; 2.3 Печать объединенного содержимого
+            (log/info "2.3 Печать объединенного содержимого")
+
+            (log/debug "Объединение файлов")
+            
+            ;; 2.4 Препроцессинг и очистка
+            (log/info "2.4 Препроцессинг и очистка")
+            (preprocessor/preprocess source-content :base-path include-path))]
       
-      (log/set-debug-level! :DEBUG)
-      (log/info "Полный цикл обработки файла завершен")
+      (log/info "Результат препроцессинга:")
+      (log/debug "Размер после препроцессинга:" (count preprocessed-code) "байт")
       
-      ;; Возвращаем результаты каждого этапа для возможного анализа
-      {:header-path header-path
-       :source-path source-path
-       :merged-code merged-code
-       :preprocessed-code preprocessed-code
-       :tokens tokens
-       :ast ast})))
+      (log/log-level! :TRACE)
+      (log/trace "Содержимое после препроцессинга:\n" preprocessed-code)
+      (log/log-level! :DEBUG)
+
+      ;; Стадия 3: Токенизация
+      (log/info "Stage 3: Токенизация")
+      (let [tokens (lexer/tokenize preprocessed-code)]
+        (log/info "Токенизация завершена")
+        (log/debug "Количество токенов:" (count tokens))
+        (log/trace "Токены:\n" tokens)
+        
+        ;; Стадия 4: Построение AST
+        (log/info "Stage 4: Построение AST")
+        (let [ast (parser/parse tokens)]
+          (log/info "Построение AST завершено")
+          (log/debug "Сложность AST:" (count ast))
+          (log/trace "Абстрактное синтаксическое дерево:\n" ast)
+          
+          ;; Возвращаем результаты с полной информацией
+          {:source-path source-path
+           :include-path include-path
+           :source-content source-content
+           :preprocessed-code preprocessed-code
+           :tokens tokens
+           :ast ast})))))
 
 (deftest test-c-file-processing
   (testing "Полный цикл обработки C-файла"
     (try 
       (let [result (process-c-file)]
         (is (map? result) "Результат должен быть map")
-        (is (contains? result :header-path) "Должен содержать путь к заголовочному файлу")
         (is (contains? result :source-path) "Должен содержать путь к исходному файлу")
-        (is (contains? result :merged-code) "Должен содержать объединенный код")
+        (is (contains? result :include-path) "Должен содержать путь включения")
+        (is (contains? result :source-content) "Должен содержать содержимое исходного файла")
         (is (contains? result :preprocessed-code) "Должен содержать препроцессированный код")
         (is (contains? result :tokens) "Должен содержать токены")
         (is (contains? result :ast) "Должен содержать AST"))
