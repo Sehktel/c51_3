@@ -12,7 +12,8 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.pprint :as pprint]
-            [clojure.stacktrace :as stacktrace]))
+            [clojure.stacktrace :as stacktrace])
+  (:import (java.io File)))
 
 (defn- get-test-file
   "Получает путь к тестовому файлу из переменной окружения"
@@ -24,30 +25,30 @@
 
 (defn- trace-include-file-search
   "Трассировка поиска включаемых файлов с расширенной диагностикой"
-  [filename base-path]
+  [^String filename ^String base-path]
   (log/info (str "Поиск файла: " filename))
   (log/info (str "Базовый путь: " base-path))
   
-  (let [search-paths [(io/file base-path filename)
-                      (io/file (System/getProperty "user.dir") filename)
-                      (io/file (System/getProperty "user.dir") "include" filename)
-                      (io/file (System/getProperty "user.dir") "src" "include" filename)
-                      (io/file (System/getProperty "user.dir") "c51code" filename)]]
+  (let [search-paths [(File. ^String (str base-path File/separator filename))
+                      (File. (System/getProperty "user.dir") filename)
+                      (File. (System/getProperty "user.dir") "include" filename)
+                      (File. (System/getProperty "user.dir") "src" "include" filename)
+                      (File. (System/getProperty "user.dir") "c51code" filename)]]
     
     (log/info "Пути поиска:")
-    (doseq [path search-paths]
+    (doseq [^File path search-paths]
       (log/info (str "Проверка пути: " (.getAbsolutePath path) 
                      " Существует: " (.exists path))))
     
-    (first (filter #(.exists %) search-paths))))
+    (first (filter #(.exists ^File %) search-paths))))
 
 (defn read-file-content
   "Читает содержимое файла с расширенной диагностикой и обработкой ошибок"
-  [file-path]
+  [^String file-path]
   (try 
     (log/trace (str "Попытка чтения файла: " file-path))
     
-    (let [file (io/file file-path)]
+    (let [^File file (File. ^String file-path)]
       (when-not (.exists file)
         (throw (ex-info (str "Файл не существует: " file-path)
                         {:path file-path
@@ -67,10 +68,10 @@
 
 (defn custom-read-include-file
   "Кастомная функция чтения включаемого файла с расширенной диагностикой"
-  [filename base-path]
+  [^String filename ^String base-path]
   (log/info (str "Попытка чтения включаемого файла: " filename))
   
-  (if-let [existing-file (trace-include-file-search filename base-path)]
+  (if-let [^File existing-file (trace-include-file-search filename base-path)]
     (do 
       (log/info (str "Найден файл: " (.getAbsolutePath existing-file)))
       (let [raw-content (slurp existing-file)
@@ -91,43 +92,47 @@
   
   (try
     (log/info "Stage 1: Подготовка и идентификация файлов")
-    (log/info "Полный путь к исходному файлу:" (.getAbsolutePath (io/file source-path)))
-    (log/debug "Путь включения:" include-path)
-    
-    (log/info "Stage 2: Чтение и подготовка содержимого файлов")
-    (let [source-content (read-file-content source-path)]
-      (log/info "Размер исходного файла:" (count source-content) "байт")
-      (log/trace "Содержимое исходного файла:\n" source-content)
+    ;; Преобразование путей в строки
+    (let [source-path (str source-path)
+          include-path (str include-path)
+          source-file (File. ^String source-path)]
+      (log/info "Полный путь к исходному файлу:" (.getAbsolutePath source-file))
+      (log/debug "Путь включения:" include-path)
       
-      (log/info "Stage 3: Препроцессинг")
-      (let [preprocessed-code (with-redefs [preprocessor/read-include-file custom-read-include-file]
-                               (preprocessor/preprocess source-content 
-                                                       :base-path include-path))]
-        (log/info "Результат препроцессинга:")
-        (log/debug "Размер после препроцессинга:" (count preprocessed-code) "байт")
-        (log/trace "Содержимое после препроцессинга:\n" preprocessed-code)
+      (log/info "Stage 2: Чтение и подготовка содержимого файлов")
+      (let [source-content (read-file-content source-path)]
+        (log/info "Размер исходного файла:" (count source-content) "байт")
+        (log/trace "Содержимое исходного файла:\n" source-content)
         
-        (log/info "Stage 4: Токенизация")
-        (let [tokens (lexer/tokenize preprocessed-code)]
-          (log/info "Токенизация завершена")
-          (log/debug "Количество токенов:" (count tokens))
-          (println "=== Токены ===")
-          (clojure.pprint/pprint tokens)
+        (log/info "Stage 3: Препроцессинг")
+        (let [preprocessed-code (with-redefs [preprocessor/read-include-file custom-read-include-file]
+                                 (preprocessor/preprocess source-content 
+                                                         :base-path include-path))]
+          (log/info "Результат препроцессинга:")
+          (log/debug "Размер после препроцессинга:" (count preprocessed-code) "байт")
+          (log/trace "Содержимое после препроцессинга:\n" preprocessed-code)
           
-          (log/info "Stage 5: Построение AST")
-          (let [ast (parser/parse tokens)]
-            (log/info "Построение AST завершено")
-            (log/debug "Сложность AST:" (count (:nodes ast)))
-            (println "=== AST ===")
-            (clojure.pprint/pprint ast)
+          (log/info "Stage 4: Токенизация")
+          (let [tokens (lexer/tokenize preprocessed-code)]
+            (log/info "Токенизация завершена")
+            (log/debug "Количество токенов:" (count tokens))
+            (println "=== Токены ===")
+            (clojure.pprint/pprint tokens)
             
-            (log/info "=== Обработка файла успешно завершена ===")
-            {:source-path source-path
-             :include-path include-path
-             :source-content source-content
-             :preprocessed-code preprocessed-code
-             :tokens tokens
-             :ast ast}))))
+            (log/info "Stage 5: Построение AST")
+            (let [ast (parser/parse tokens)]
+              (log/info "Построение AST завершено")
+              (log/debug "Сложность AST:" (count (:nodes ast)))
+              (println "=== AST ===")
+              (clojure.pprint/pprint ast)
+              
+              (log/info "=== Обработка файла успешно завершена ===")
+              {:source-path source-path
+               :include-path include-path
+               :source-content source-content
+               :preprocessed-code preprocessed-code
+               :tokens tokens
+               :ast ast})))))
     (catch Exception e
       (log/error "=== Критическая ошибка при обработке файла ===")
       (log/error "Сообщение:" (.getMessage e))

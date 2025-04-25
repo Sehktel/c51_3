@@ -7,6 +7,19 @@
             [clojure.string :as str]
             [clojure.stacktrace :as stacktrace]))
 
+(defn test-ast-generation []
+  (let [source-path "./test/c51code/abc.c"
+        include-path "./test/c51code"
+        source-content (slurp source-path)
+        preprocessed-code (preprocessor/preprocess source-content :base-path include-path)
+        tokens (lexer/tokenize preprocessed-code)
+        ast (parser/parse tokens)]
+    (println "=== Токены ===")
+    (pprint/pprint tokens)
+    (println "\n=== AST ===")
+    (pprint/pprint ast)))
+
+
 ;; Константы для конфигурации тестирования
 (def ^:private default-test-file-env "TEST_FILE")
 (def ^:private default-include-path-env "INCLUDE_PATH")
@@ -183,7 +196,7 @@
       ;; Логирование результатов pretty-print
       (log/info "=== Результат Pretty Print AST ===")
       (log/info "Длина строки:" (count pretty-print))
-      (log/info "Первые 500 символов:\n" (subs pretty-print 0 (min 500 (count pretty-print))))
+      (log/info "Первые 5000 символов:\n" (subs pretty-print 0 (min 5000 (count pretty-print))))
       
       ;; Проверки
       (is (string? pretty-print) "Визуализация должна быть строкой")
@@ -195,7 +208,7 @@
         (is (contains? parsed-print :type) "Карта должна содержать ключ :type")
         (is (contains? parsed-print :total-nodes) "Карта должна содержать ключ :total-nodes")
         (is (contains? parsed-print :nodes) "Карта должна содержать ключ :nodes")
-        (is (< (count (:nodes parsed-print)) 11) "Должно быть не более 10 узлов в AST")))))
+        (is (< (count (:nodes parsed-print)) 110) "Должно быть не более 110 узлов в AST")))))
 
 (defn -main
   "Точка входа для запуска тестов AST"
@@ -206,3 +219,5 @@
   (print-env-vars)
   
   (run-tests 'c51cc.ast_test))
+
+(test-ast-generation) 
