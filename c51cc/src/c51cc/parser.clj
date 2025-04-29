@@ -285,8 +285,9 @@
      :right (parse-expression (list right-token))
      :tokens after-right}))
 
-(defn- ^:private internal-parse-function-body [tokens]
+(defn- ^:private internal-parse-function-body 
   "Парсинг тела функции с расширенной диагностикой"
+  [tokens]
   (log/debug "Начало парсинга тела функции")
   (log/trace "Входящие токены:" (pr-str tokens))
   
@@ -434,8 +435,9 @@
          :tokens tokens})))))
 
 ;; Реализации парсера
-(defn parser-parse-program [parser tokens]
+(defn parser-parse-program
   "Семантический анализ программы с созданием полноценного AST"
+  [parser tokens]
   (log/debug "Начало семантического парсинга программы")
   
   (loop [remaining-tokens tokens
@@ -459,7 +461,7 @@
   (parser-parse-program (C51Parser. tokens) tokens))
 
 ;; Добавление парсера для циклов for
-(defn- ^:private parse-for-loop [tokens]
+(defn- ^:private parse-for-loop 
   "Семантический парсинг цикла for с расширенной диагностикой
 
   Грамматика цикла for:
@@ -471,6 +473,7 @@
   - Строгий синтаксический контроль
   - Поддержка сложных инициализаций, условий и инкрементов
   - Робастная обработка ошибок"
+  [tokens]
   (log/debug "Начало парсинга цикла for")
   (log/trace "Входящие токены для цикла for: " (pr-str (take 10 tokens)))
 
@@ -494,7 +497,7 @@
           [semicolon2 & after-condition] (:tokens condition-result)
           
           ;; Парсинг инкремента
-          increment-result (parse-expression after-condition)
+          increment-result (parse-expression (rest after-condition))
           [close-paren & after-close] (:tokens increment-result)
           
           ;; Парсинг тела цикла
@@ -523,7 +526,7 @@
 (declare parse-while-loop)
 
 ;; Парсер дляwhile-циклов
-(defn- ^:private parse-while-loop [tokens]
+(defn- ^:private parse-while-loop
   "Семантический парсинг цикла while с расширенной диагностикой
 
   Грамматика цикла while:
@@ -535,6 +538,7 @@
   - Строгий синтаксический контроль
   - Поддержка сложных условий
   - Робастная обработка ошибок"
+  [tokens]
   (log/debug "Начало парсинга цикла while")
   (log/trace "Входящие токены для цикла while: " (pr-str (take 10 tokens)))
 
@@ -574,13 +578,14 @@
 ;; Объявление парсера вызова функций
 (declare parse-function-call)
 
-(defn- ^:private parse-function-arguments [tokens]
+(defn- ^:private parse-function-arguments 
   "Семантический парсинг аргументов функции
 
   Ключевые возможности:
   - Поддержка различных типов аргументов
   - Рекурсивный парсинг сложных выражений
   - Обработка пустого списка аргументов"
+  [tokens]
   (log/debug "Начало парсинга аргументов функции")
   (log/trace "Входящие токены аргументов: " (pr-str (take 10 tokens)))
 
@@ -609,7 +614,7 @@
           (recur (:tokens arg-result) 
                  (conj arguments arg-result)))))))
 
-(defn- ^:private parse-function-call [tokens]
+(defn- ^:private parse-function-call 
   "Семантический парсинг вызова функции с аргументами
 
   Грамматика вызова функции:
@@ -619,6 +624,7 @@
   - Распознавание имени функции
   - Парсинг списка аргументов
   - Поддержка сложных выражений в аргументах"
+  [tokens]
   (log/debug "Начало парсинга вызова функции")
   (log/trace "Входящие токены вызова функции: " (pr-str (take 10 tokens)))
 
@@ -653,7 +659,7 @@
 ;; Объявление парсера switch-case
 (declare parse-switch-case)
 
-(defn- ^:private parse-switch-case [tokens]
+(defn- ^:private parse-switch-case
   "Семантический парсинг конструкции switch-case с расширенной диагностикой
 
   Грамматика switch-case:
@@ -673,6 +679,7 @@
   - Парсинг множественных case-блоков
   - Поддержка default-блока
   - Робастная обработка вложенных блоков"
+  [tokens]
   (log/debug "Начало парсинга конструкции switch-case")
   (log/trace "Входящие токены switch-case: " (pr-str (take 10 tokens)))
 
@@ -804,8 +811,9 @@
     :== :!= :< :> :<= :>= 
     :&& :|| :& :|})
 
-(defn- ^:private is-binary-operator? [token]
+(defn- ^:private is-binary-operator?
   "Проверка, является ли токен бинарным оператором"
+  [token]
   (contains? binary-operators (keyword (:value token))))
 
 (defn- ^:private parse-binary-operation 
@@ -1049,7 +1057,7 @@
     (parse-expression tokens)))
 
 ;; Парсер для if-else
-(defn- ^:private parse-if-else [tokens]
+(defn- ^:private parse-if-else 
   "Семантический парсинг конструкции if-else
 
   Грамматика if-else:
@@ -1063,6 +1071,7 @@
   - Распознавание условия
   - Парсинг блоков true и false
   - Поддержка вложенных блоков"
+  [tokens]
   (log/debug "Начало парсинга конструкции if-else")
   (log/trace "Входящие токены if-else: " (pr-str (take 10 tokens)))
 
@@ -1111,7 +1120,7 @@
            :tokens (:tokens true-body)})))))
 
 ;; Парсер для do-while
-(defn- ^:private parse-do-while [tokens]
+(defn- ^:private parse-do-while 
   "Семантический парсинг цикла do-while
 
   Грамматика do-while:
@@ -1123,6 +1132,7 @@
   - Парсинг тела цикла
   - Распознавание условия
   - Поддержка сложных блоков"
+  [tokens]
   (log/debug "Начало парсинга цикла do-while")
   (log/trace "Входящие токены do-while: " (pr-str (take 10 tokens)))
 
@@ -1166,7 +1176,7 @@
          :tokens after-semicolon}))))
 
 ;; Парсер для break и continue
-(defn- ^:private parse-break-continue [tokens]
+(defn- ^:private parse-break-continue
   "Семантический парсинг операторов break и continue
 
   Грамматика:
@@ -1176,6 +1186,7 @@
   Ключевые аспекты парсинга:
   - Распознавание ключевых слов
   - Проверка наличия точки с запятой"
+  [tokens]
   (log/debug "Начало парсинга break/continue")
   (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
 
@@ -1197,7 +1208,7 @@
        :tokens after-semicolon})))
 
 ;; Парсер для return
-(defn- ^:private parse-return [tokens]
+(defn- ^:private parse-return 
   "Семантический парсинг оператора return
 
   Грамматика:
@@ -1207,6 +1218,7 @@
   - Распознавание ключевого слова return
   - Опциональный возврат выражения
   - Проверка точки с запятой"
+  [tokens]
   (log/debug "Начало парсинга return")
   (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
 
@@ -1238,7 +1250,7 @@
            :tokens after-semicolon})))))
 
 ;; Парсер для указателей
-(defn- ^:private parse-pointer-declaration [tokens]
+(defn- ^:private parse-pointer-declaration 
   "Семантический парсинг объявления указателей
 
   Грамматика:
@@ -1249,6 +1261,7 @@
   - Распознавание типа указателя
   - Поддержка инициализации
   - Проверка синтаксиса"
+  [tokens]
   (log/debug "Начало парсинга объявления указателя")
   (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
 
@@ -1301,7 +1314,7 @@
                             {:tokens tokens}))))))))
 
 ;; Парсер для массивов
-(defn- ^:private parse-array-declaration [tokens]
+(defn- ^:private parse-array-declaration 
   "Семантический парсинг объявления массивов
 
   Грамматика:
@@ -1312,6 +1325,7 @@
   - Распознавание типа массива
   - Поддержка размера и инициализации
   - Проверка синтаксиса"
+  [tokens]
   (log/debug "Начало парсинга объявления массива")
   (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
 
@@ -1374,7 +1388,7 @@
                               {:tokens tokens})))))))))
 
 ;; Парсер для инициализации массивов
-(defn- ^:private parse-array-initializer [tokens]
+(defn- ^:private parse-array-initializer
   "Семантический парсинг инициализации массивов
 
   Грамматика:
@@ -1384,6 +1398,7 @@
   - Распознавание списка значений
   - Поддержка различных типов значений
   - Проверка синтаксиса"
+  [tokens]
   (log/debug "Начало парсинга инициализации массива")
   (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
 
@@ -1427,7 +1442,7 @@
                               {:tokens tokens})))))))))
 
 ;; Парсер для структур
-(defn- ^:private parse-struct-declaration [tokens]
+(defn- ^:private parse-struct-declaration 
   "Семантический парсинг объявления структур
 
   Грамматика:
@@ -1441,6 +1456,7 @@
   - Распознавание полей структуры
   - Поддержка вложенных типов
   - Проверка синтаксиса"
+  [tokens]
   (log/debug "Начало парсинга объявления структуры")
   (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
 
@@ -1489,7 +1505,7 @@
                               {:tokens tokens})))))))))
 
 ;; Парсер для typedef
-(defn- ^:private parse-typedef [tokens]
+(defn- ^:private parse-typedef 
   "Семантический парсинг typedef
 
   Грамматика:
@@ -1500,6 +1516,7 @@
   - Распознавание исходного и нового типов
   - Поддержка типов структур
   - Проверка синтаксиса"
+  [tokens]
   (log/debug "Начало парсинга typedef")
   (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
 

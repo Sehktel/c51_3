@@ -10,7 +10,7 @@
             [c51cc.parser :as parser]
             [c51cc.logger :as log]
             [clojure.java.io :as io]
-            [clojure.string :as str]
+            ;; [clojure.string :as str]
             [clojure.pprint :as pprint]
             [clojure.stacktrace :as stacktrace])
   (:import (java.io File)))
@@ -203,18 +203,18 @@
    :total-nodes (count ast)
    :max-depth 10})
 
-(defn -main
-  "Точка входа для демонстрации возможностей AST"
-  [& args]
-  (log/set-debug-level! :DEBUG)
-  (log/info "Инициализация модуля AST")
+;; (defn -main
+;;   "Точка входа для демонстрации возможностей AST"
+;;   [& args]
+;;   (log/set-debug-level! :DEBUG)
+;;   (log/info "Инициализация модуля AST")
   
-  (try
-    (let [result (process-c-file)]
-      (println "Сгенерированный AST:")
-      (println (pretty-print-ast (:ast result)))
-      (println "\nАнализ AST:")
-      (println (analyze-ast (:ast result))))
-    (catch Exception e
-      (log/error "Ошибка при генерации AST: " (.getMessage e))
-      (System/exit 1))))
+;;   (try
+;;     (let [result (process-c-file)]
+;;       (println "Сгенерированный AST:")
+;;       (println (pretty-print-ast (:ast result)))
+;;       (println "\nАнализ AST:")
+;;       (println (analyze-ast (:ast result))))
+;;     (catch Exception e
+;;       (log/error "Ошибка при генерации AST: " (.getMessage e))
+;;       (System/exit 1))))
