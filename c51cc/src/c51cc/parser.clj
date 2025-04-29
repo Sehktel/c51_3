@@ -8,18 +8,35 @@
 
 ;; Парсер для языка C51 - абстракция синтаксического анализа
 
-(declare internal-parse-parameters internal-parse-function-body)
-(declare ast-node-types create-parser parse)
-(declare parser-parse-program)
-(declare parser-parse-function-declaration)
-(declare parser-parse-variable-declaration)
-(declare parser-parse-expression)
-(declare internal-parse-parameters)
-(declare internal-parse-function-body)
-(declare create-parser)
-(declare parse)
-(declare parse-for-loop)
 
+;; Объявления функций для парсинга
+(declare ast-node-types
+        create-parser
+        internal-parse-function-body
+        internal-parse-parameters
+        parse
+        parse-array-declaration
+        parse-array-initializer
+        parse-assignment
+        parse-binary-operation
+        parse-bitwise-operation
+        parse-break-continue
+        parse-do-while
+        parse-expression
+        parse-expression-with-precedence
+        parse-for-loop
+        parse-function-call
+        parse-function-declaration
+        parse-if-else
+        parse-pointer-declaration
+        parse-program
+        parse-return
+        parse-struct-declaration
+        parse-switch-case
+        parse-typedef
+        parse-unary-operation
+        parse-variable-declaration
+        parse-while-loop)
 
 (def ^:dynamic *current-debug-level* 
   "Динамическая переменная для текущего уровня логирования.
@@ -35,34 +52,6 @@
    :function-call :function-call
    :control-flow :control-flow
    :expression :expression})
-
-;; Объявления функций для парсинга
-(declare parser-parse-program)
-(declare parser-parse-function-declaration)
-(declare parser-parse-variable-declaration)
-(declare parser-parse-expression)
-(declare internal-parse-parameters)
-(declare internal-parse-function-body)
-(declare create-parser)
-(declare parse)
-(declare parse-while-loop)
-(declare parse-function-call)
-(declare parse-switch-case)
-(declare parse-do-while)
-(declare parse-if-else)
-(declare parse-break-continue)
-(declare parse-return)
-(declare parse-array-initializer)
-(declare parse-pointer-declaration)
-(declare parse-array-declaration)
-(declare parse-struct-declaration)
-(declare parse-typedef)
-(declare parse-expression-with-precedence)
-(declare parse-binary-operation)
-(declare parse-bitwise-operation)
-(declare parse-unary-operation)
-(declare parse-assignment)
-(declare parse-for-loop)
 
 
 ;; Основная реализация парсера
@@ -122,7 +111,7 @@
         (throw (ex-info "Неожиданный токен в списке параметров" 
                         {:token current-token}))))))
 
-(defn parser-parse-function-declaration 
+(defn parse-function-declaration 
   "Улучшенный парсинг объявления функции
 
   Расширенная грамматика:
@@ -435,7 +424,7 @@
          :tokens tokens})))))
 
 ;; Реализации парсера
-(defn parser-parse-program
+(defn parse-program
   "Семантический анализ программы с созданием полноценного AST"
   [parser tokens]
   (log/debug "Начало семантического парсинга программы")
@@ -445,7 +434,7 @@
     (if (empty? remaining-tokens)
       {:type (:program ast-node-types)
        :nodes parsed-nodes}
-      (let [result (parser-parse-function-declaration parser remaining-tokens)
+      (let [result (parse-function-declaration parser remaining-tokens)
             node (dissoc result :tokens)]
         (recur (:tokens result) (conj parsed-nodes node))))))
 
@@ -458,10 +447,10 @@
    - Гибкая обработка различных конструкций языка"
   [tokens]  
   (log/debug "Начало семантического парсинга программы")
-  (parser-parse-program (C51Parser. tokens) tokens))
+  (parse-program (C51Parser. tokens) tokens))
 
 ;; Добавление парсера для циклов for
-(defn- ^:private parse-for-loop 
+(defn parse-for-loop 
   "Семантический парсинг цикла for с расширенной диагностикой
 
   Грамматика цикла for:
@@ -522,11 +511,11 @@
        :body (:body body-result)
        :tokens (:tokens body-result)})))
 
-;; Объявление парсера дляwhile-циклов
+;; Объявление парсера для while-циклов
 (declare parse-while-loop)
 
-;; Парсер дляwhile-циклов
-(defn- ^:private parse-while-loop
+;; Парсер для while-циклов
+(defn parse-while-loop
   "Семантический парсинг цикла while с расширенной диагностикой
 
   Грамматика цикла while:
@@ -659,7 +648,7 @@
 ;; Объявление парсера switch-case
 (declare parse-switch-case)
 
-(defn- ^:private parse-switch-case
+(defn parse-switch-case
   "Семантический парсинг конструкции switch-case с расширенной диагностикой
 
   Грамматика switch-case:
@@ -1057,7 +1046,7 @@
     (parse-expression tokens)))
 
 ;; Парсер для if-else
-(defn- ^:private parse-if-else 
+(defn parse-if-else 
   "Семантический парсинг конструкции if-else
 
   Грамматика if-else:
@@ -1120,7 +1109,7 @@
            :tokens (:tokens true-body)})))))
 
 ;; Парсер для do-while
-(defn- ^:private parse-do-while 
+(defn parse-do-while 
   "Семантический парсинг цикла do-while
 
   Грамматика do-while:
@@ -1176,7 +1165,7 @@
          :tokens after-semicolon}))))
 
 ;; Парсер для break и continue
-(defn- ^:private parse-break-continue
+(defn parse-break-continue
   "Семантический парсинг операторов break и continue
 
   Грамматика:
@@ -1208,7 +1197,7 @@
        :tokens after-semicolon})))
 
 ;; Парсер для return
-(defn- ^:private parse-return 
+(defn parse-return 
   "Семантический парсинг оператора return
 
   Грамматика:
@@ -1250,7 +1239,7 @@
            :tokens after-semicolon})))))
 
 ;; Парсер для указателей
-(defn- ^:private parse-pointer-declaration 
+(defn parse-pointer-declaration 
   "Семантический парсинг объявления указателей
 
   Грамматика:
@@ -1314,7 +1303,7 @@
                             {:tokens tokens}))))))))
 
 ;; Парсер для массивов
-(defn- ^:private parse-array-declaration 
+(defn parse-array-declaration 
   "Семантический парсинг объявления массивов
 
   Грамматика:
@@ -1442,7 +1431,7 @@
                               {:tokens tokens})))))))))
 
 ;; Парсер для структур
-(defn- ^:private parse-struct-declaration 
+(defn parse-struct-declaration 
   "Семантический парсинг объявления структур
 
   Грамматика:
@@ -1505,7 +1494,7 @@
                               {:tokens tokens})))))))))
 
 ;; Парсер для typedef
-(defn- ^:private parse-typedef 
+(defn parse-typedef 
   "Семантический парсинг typedef
 
   Грамматика:
