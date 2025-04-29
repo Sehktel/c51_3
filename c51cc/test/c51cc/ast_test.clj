@@ -5,7 +5,11 @@
             [c51cc.logger :as log]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.stacktrace :as stacktrace]))
+            [clojure.stacktrace :as stacktrace]
+            [clojure.pprint :as pprint]
+            [c51cc.parser :as parser]
+            [c51cc.lexer :as lexer]
+            [c51cc.preprocessor :as preprocessor]))
 
 (defn test-ast-generation []
   (let [source-path "./test/c51code/abc.c"
@@ -153,6 +157,7 @@
 
 (deftest test-generate-ast
   "Тест генерации абстрактного синтаксического дерева"
+  
   (testing "Генерация AST из переменной окружения"
     (log/info "=== Начало теста генерации AST ===")
     (log-environment-variables)
@@ -213,7 +218,7 @@
 (defn -main
   "Точка входа для запуска тестов AST"
   [& args]
-  (log/log-level! :DEBUG)
+  (log/set-debug-level! :DEBUG)
   (log/debug "Начало тестирования AST")
   ;; Печать переменных окружения перед запуском тестов
   (print-env-vars)
