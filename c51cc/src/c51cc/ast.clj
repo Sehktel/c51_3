@@ -206,7 +206,7 @@
 (defn -main
   "Точка входа для демонстрации возможностей AST"
   [& args]
-  (log/log-level! :DEBUG)
+  (log/set-debug-level! :DEBUG)
   (log/info "Инициализация модуля AST")
   
   (try
