@@ -7,7 +7,8 @@
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [instaparse "1.4.10"]
                  [org.clojure/tools.logging "1.2.1"]
-                 [log4j/log4j "1.2.17"]]
+                 [log4j/log4j "1.2.17"]
+                 [org.clojure/tools.cli "1.0.206"]]
   
   ;; Настройки для тестирования
   :test-paths ["test"]
@@ -42,7 +43,7 @@
   
   ;; Точка входа для запуска
   ;;:main c51cc.core
-  :main c51cc.ast
+  :main c51cc.compiler
   
   :test-selectors {
     :manual (fn [m] (:manual m))
@@ -51,9 +52,3 @@
                       (:manual m)
                       (= (str (:name m)) "test-manual-parse")))
   })
-  ;; ;; Селекторы тестов
-  ;; :test-selectors {:default (complement :integration)
-  ;;                  :integration :integration
-  ;;                  :ast :ast
-  ;;                  :all (constantly true)}
-  ;; )
