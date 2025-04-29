@@ -29,12 +29,15 @@
   (log/info (str "Поиск файла: " filename))
   (log/info (str "Базовый путь: " base-path))
   
-  (let [search-paths [(File. ^String (str base-path File/separator filename))
-                      (File. (System/getProperty "user.dir") filename)
-                      (File. (System/getProperty "user.dir") "include" filename)
-                      (File. (System/getProperty "user.dir") "src" "include" filename)
-                      (File. (System/getProperty "user.dir") "c51code" filename)]]
-    
+
+  ;; Список потенциальных путей для поиска
+  (let [search-paths [(io/file base-path filename)
+                      (io/file (System/getProperty "user.dir") filename)
+                      (io/file (System/getProperty "user.dir") "include" filename)
+                      (io/file (System/getProperty "user.dir") "src" "include" filename)
+                      (io/file (System/getProperty "user.dir") "c51code" filename)]]
+
+   
     (log/info "Пути поиска:")
     (doseq [^File path search-paths]
       (log/info (str "Проверка пути: " (.getAbsolutePath path) 

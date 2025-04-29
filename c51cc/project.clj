@@ -41,7 +41,8 @@
   :jvm-opts ["-Xmx2g"]
   
   ;; Точка входа для запуска
-  :main c51cc.core
+  ;;:main c51cc.core
+  :main c51cc.ast
   
   :test-selectors {
     :manual (fn [m] (:manual m))
