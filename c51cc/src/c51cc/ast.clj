@@ -29,11 +29,11 @@
   (log/info (str "Поиск файла: " filename))
   (log/info (str "Базовый путь: " base-path))
   
-  (let [search-paths [(File. ^String (str base-path File/separator filename))
-                      (File. (System/getProperty "user.dir") filename)
-                      (File. (System/getProperty "user.dir") "include" filename)
-                      (File. (System/getProperty "user.dir") "src" "include" filename)
-                      (File. (System/getProperty "user.dir") "c51code" filename)]]
+  (let [search-paths [(io/file base-path filename)
+                      (io/file (System/getProperty "user.dir") filename)
+                      (io/file (System/getProperty "user.dir") "include" filename)
+                      (io/file (System/getProperty "user.dir") "src" "include" filename)
+                      (io/file (System/getProperty "user.dir") "c51code" filename)]]
     
     (log/info "Пути поиска:")
     (doseq [^File path search-paths]
@@ -48,7 +48,7 @@
   (try 
     (log/trace (str "Попытка чтения файла: " file-path))
     
-    (let [^File file (File. ^String file-path)]
+    (let [^File file (io/file ^String file-path)]
       (when-not (.exists file)
         (throw (ex-info (str "Файл не существует: " file-path)
                         {:path file-path
@@ -95,7 +95,7 @@
     ;; Преобразование путей в строки
     (let [source-path (str source-path)
           include-path (str include-path)
-          source-file (File. ^String source-path)]
+          source-file (io/file source-path)]
       (log/info "Полный путь к исходному файлу:" (.getAbsolutePath source-file))
       (log/debug "Путь включения:" include-path)
       
