@@ -5,8 +5,8 @@
             [c51cc.ast    :as ast]  ;; Explicitly require the ast namespace
             [clojure.stacktrace :as stacktrace]
             [clojure.set :as set]
-            [clojure.string :as string]
-            ))
+            [clojure.string :as str]
+            [clojure.java.io :as io]))
 
 ;; Парсер для языка C51 - абстракция синтаксического анализа
 
@@ -224,12 +224,30 @@
             result)
           base-result)))))
 
+(defn- ^:private parse-type-specifier
+  "Парсинг спецификатора типа, включая составные типы
+   
+   Поддерживает:
+   - Простые типы (char, int, void)
+   - Составные типы (unsigned char, signed int)
+   - Модификаторы (const, volatile)"
+  [tokens]
+  (log/debug "Парсинг спецификатора типа")
+  (loop [current-tokens tokens
+         type-parts []]
+    (let [[token & rest] current-tokens]
+      (if (and token (= (:type token) :type-keyword))
+        (recur rest (conj type-parts (:value token)))
+        {:type-str (str/join " " type-parts)
+         :remaining current-tokens}))))
+
 (defn- ^:private parse-variable-declaration 
   "Парсинг объявления переменной и присваивания
    
-   Поддерживает два формата:
+   Поддерживает:
    1. type identifier [= expression];
    2. identifier = expression;
+   3. compound-type identifier [= expression];  // например: unsigned char x;
    
    Возвращает карту с результатами парсинга"
   [tokens]
@@ -238,35 +256,41 @@
   
   (let [[first-token & remaining] tokens]
     (cond
-      ;; Случай объявления с типом
+      ;; Случай объявления с типом (включая составные типы)
       (= (:type first-token) :type-keyword)
-      (let [[name-token & after-name] remaining]
+      (let [type-result (parse-type-specifier tokens)
+            [name-token & after-name] (:remaining type-result)]
         (when-not (= (:type name-token) :identifier)
           (log/error "Ожидается идентификатор после типа")
           (throw (ex-info "Некорректное объявление переменной"
                           {:tokens tokens})))
         
         (let [[next-token & after-next] after-name]
-          (if (= (:value next-token) "=")
+          (if (and next-token (= (:value next-token) "="))
             ;; Объявление с инициализацией
             (let [init-expr (parse-expression after-next)
                   [semicolon & after-semicolon] (:tokens init-expr)]
-              (when-not (= (:value semicolon) ";")
+              (when-not (and semicolon (= (:value semicolon) ";"))
                 (log/error "Ожидается точка с запятой после инициализации")
                 (throw (ex-info "Отсутствует точка с запятой"
                                 {:tokens tokens})))
               
               {:type :variable-declaration
-               :var-type (str (:value first-token))
+               :var-type (:type-str type-result)
                :name (:value name-token)
                :init-value init-expr
                :tokens after-semicolon})
             
             ;; Простое объявление
-            {:type :variable-declaration
-             :var-type (str (:value first-token))
-             :name (:value name-token)
-             :tokens after-name})))
+            (if (and next-token (= (:value next-token) ";"))
+              {:type :variable-declaration
+               :var-type (:type-str type-result)
+               :name (:value name-token)
+               :tokens (rest after-name)}
+              (do
+                (log/error "Ожидается точка с запятой после объявления")
+                (throw (ex-info "Отсутствует точка с запятой"
+                                {:tokens tokens})))))))
       
       ;; Случай простого присваивания
       (= (:type first-token) :identifier)
@@ -478,35 +502,72 @@
                    (parse-assignment tokens))
       (parse-expression tokens))))
 
-;; Реализации парсера
+(defn- ^:private check-function-declaration?
+  "Проверяет, является ли последовательность токенов началом объявления функции"
+  [current rest]
+  (and (= (:type current) :type-keyword)
+       (let [[next & after-next] rest]
+         (and next 
+              (= (:type next) :identifier)
+              (let [[after & _] after-next]
+                (and after (= (:value after) "(")))))))
+
+(defn- ^:private parse-next-node
+  "Парсинг следующего узла программы"
+  [tokens]
+  (let [[current & rest] tokens]
+    (cond
+      ;; Объявление функции
+      (check-function-declaration? current rest)
+      (parse-function-declaration tokens)
+      
+      ;; Объявление переменной
+      (= (:type current) :type-keyword)
+      (parse-variable-declaration tokens)
+      
+      ;; Пропуск разделителей и пустых операторов
+      (= (:type current) :separator)
+      {:type :separator :tokens rest}
+      
+      ;; Присваивание
+      (= (:type current) :identifier)
+      (parse-assignment tokens)
+      
+      :else
+      (do
+        (log/error "Неожиданный токен в программе:" (pr-str current))
+        (throw (ex-info "Ошибка парсинга программы" 
+                       {:tokens tokens}))))))
+
 (defn parse-program
-  "Семантический анализ программы с созданием полноценного AST"
+  "Парсинг программы на C51
+   
+   Поддерживает:
+   - Объявления функций
+   - Глобальные переменные
+   - Составные типы
+   - Директивы препроцессора"
   ([tokens]
    (parse-program tokens nil))
   ([tokens context]
-   (log/debug "Начало семантического парсинга программы")
-   (if (empty? tokens)
-     (do
-       (log/debug "Пустой список токенов")
+   (log/debug "Начало парсинга программы")
+   (log/trace "Входящие токены программы: " (pr-str (take 5 tokens)))
+   
+   (loop [remaining tokens
+          nodes []]
+     (if (empty? remaining)
        {:type (:program ast-node-types)
-        :nodes []})
-     (loop [remaining-tokens tokens
-            parsed-nodes []]
-       (if (empty? remaining-tokens)
-         (do
-           (log/debug "Парсинг программы завершен. Узлов: " (count parsed-nodes))
-           {:type (:program ast-node-types)
-            :nodes parsed-nodes})
-         (let [_ (log/trace "Парсинг следующего узла. Оставшиеся токены: " (pr-str (take 5 remaining-tokens)))
-               result (try
-                       (parse-function-declaration remaining-tokens)
-                       (catch Exception e
-                         (log/error "Ошибка при парсинге функции: " (str e))
-                         (throw (ex-info "Ошибка парсинга программы" 
-                                       {:tokens remaining-tokens
-                                        :cause e}))))
-               node (dissoc result :tokens)]
-           (recur (:tokens result) (conj parsed-nodes node))))))))
+        :nodes nodes}
+       (let [result (try
+                     (parse-next-node remaining)
+                     (catch Exception e
+                       (log/error "Ошибка при парсинге узла:" e)
+                       (throw (ex-info "Ошибка парсинга программы" 
+                                     {:tokens remaining
+                                      :cause e}))))]
+         (if (= (:type result) :separator)
+           (recur (:tokens result) nodes)
+           (recur (:tokens result) (conj nodes (dissoc result :tokens)))))))))
 
 ;; Добавление парсера для циклов for
 (defn parse-for-loop 
@@ -1857,9 +1918,18 @@
 
 ;; 3. Интегрировать лексер в парсер:
 (defn parse [input]
-  (let [tokens (enhanced-tokenize input)
-        context (lexer/create-parsing-context tokens)]
-    (parse-program tokens context)))
+  (log/debug "Начало парсинга. Тип входных данных:" (type input))
+  (let [tokens (if (sequential? input)
+                 input
+                 (enhanced-tokenize input))
+        ;; Убедимся, что все значения токенов - строки
+        normalized-tokens (mapv (fn [token]
+                                (if (map? token)
+                                  (update token :value str)
+                                  token))
+                              tokens)
+        context (lexer/create-parsing-context normalized-tokens)]
+    (parse-program normalized-tokens context)))
 
 ;; 1. Определить специфичные токены C51:
 (def ^:private c51-token-types
@@ -2407,7 +2477,7 @@
   "Преобразование строкового представления числа в числовое значение"
   [value]
   (try 
-    (if (string/starts-with? value "0x")
+    (if (str/starts-with? value "0x")
       (Integer/parseInt (subs value 2) 16)  ; Шестнадцатеричное число
       (Integer/parseInt value))             ; Десятичное число
     (catch NumberFormatException e

@@ -392,8 +392,12 @@
   "Преобразует исходный код в последовательность токенов"
   [code]
   (log/debug "Начало токенизации исходного кода. Длина кода: " (count code))
-  (let [token-map (create-token-map)]
-    (loop [remaining-code (str/trim code)
+  (let [token-map (create-token-map)
+        input-str (cond
+                   (string? code) code
+                   (sequential? code) (str/join "\n" (map str code))
+                   :else (str code))]
+    (loop [remaining-code (str/trim input-str)
            tokens []]
       (if (str/blank? remaining-code)
         (do 
@@ -412,7 +416,7 @@
 
               ;; Если нет точного совпадения, пытаемся найти по регулярным выражениям
               token (cond
-                     include-match {:value include-match :type :include-path}
+                     include-match {:value (str include-match) :type :include-path}
                      exact-match exact-match
                      :else (find-regex-token remaining-code))]
 
@@ -421,14 +425,14 @@
                   token-length (if (string? value)
                                 (count value)
                                 ;; Для случая, когда value не строка (возвращаемое значение из re-find может быть вектором)
-                                (count (first (if (vector? value) value [value]))))]
+                                (count (str (first (if (vector? value) value [value])))))]
               (log/trace "Распознан токен: " token)
               (recur
                (str/trim (subs remaining-code token-length))
                (conj tokens (if (vector? (:value token))
                             ;; Если значение - вектор, берем первый элемент (полное совпадение)
-                            (assoc token :value (first (:value token)))
-                            token))))
+                            (assoc token :value (str (first (:value token))))
+                            (update token :value str)))))
             (do 
               (log/info "Ошибка токенизации. Оставшийся код: " remaining-code)
               (throw (ex-info "Tokenization error" {:remaining-code remaining-code})))))))))
