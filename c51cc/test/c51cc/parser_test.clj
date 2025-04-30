@@ -173,13 +173,12 @@
 
 ;; Тесты для парсинга циклов for
 (deftest test-parse-for-loop
-  (testing "Корректный цикл for с простой инициализацией"
-    (log/debug "Начало теста: Корректный цикл for")
+  (testing "Корректный цикл for с инкрементом"
+    (log/debug "Начало теста: Корректный цикл for с инкрементом")
     (log/set-debug-level! :TRACE)
     (let [tokens (create-tokens
                   [:keyword "for"]
                   [:separator "("]
-                  [:type-keyword "int"]
                   [:identifier "i"]
                   [:operator "="]
                   [:int_number "0"]
@@ -192,19 +191,75 @@
                   [:operator "++"]
                   [:separator ")"]
                   [:separator "{"]
+                  [:separator ";"]
                   [:separator "}"])
-          result (parser/parse-for-loop  tokens)]
+          result (parser/parse-for-loop tokens)]
       (log/trace "type result :control-flow:")
-        (is (= (:type result) :control-flow))
+      (is (= (:type result) :control-flow))
       (log/trace "subtype result :for-loop:")
-        (is (= (:subtype result) :for-loop))
+      (is (= (:subtype result) :for-loop))
       (log/trace "initialization result :map?")
-        (is (map? (:initialization result)))
+      (is (map? (:initialization result)))
       (log/trace "condition result :map?")
-        (is (map? (:condition result)))
-      (log/trace "increment result :map?")
-        (is (map? (:increment result)))
+      (is (map? (:condition result)))
+      (log/trace "step result :map?")
+      (is (map? (:step result)))
       (log/set-debug-level! :DEBUG)  
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Корректный цикл for с декрементом"
+    (log/debug "Начало теста: Корректный цикл for с декрементом")
+    (let [tokens (create-tokens
+                  [:keyword "for"]
+                  [:separator "("]
+                  [:identifier "i"]
+                  [:operator "="]
+                  [:int_number "10"]
+                  [:separator ";"]
+                  [:identifier "i"]
+                  [:operator ">"]
+                  [:int_number "0"]
+                  [:separator ";"]
+                  [:identifier "i"]
+                  [:operator "--"]
+                  [:separator ")"]
+                  [:separator "{"]
+                  [:separator ";"]
+                  [:separator "}"])
+          result (parser/parse-for-loop tokens)]
+      (is (= (:type result) :control-flow))
+      (is (= (:subtype result) :for-loop))
+      (is (map? (:initialization result)))
+      (is (map? (:condition result)))
+      (is (map? (:step result)))
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Корректный цикл for с составным шагом"
+    (log/debug "Начало теста: Корректный цикл for с составным шагом")
+    (let [tokens (create-tokens
+                  [:keyword "for"]
+                  [:separator "("]
+                  [:identifier "i"]
+                  [:operator "="]
+                  [:int_number "0"]
+                  [:separator ";"]
+                  [:identifier "i"]
+                  [:operator "<"]
+                  [:int_number "100"]
+                  [:separator ";"]
+                  [:identifier "i"]
+                  [:operator "+="]
+                  [:int_number "2"]
+                  [:separator ")"]
+                  [:separator "{"]
+                  [:separator ";"]
+                  [:separator "}"])
+          result (parser/parse-for-loop tokens)]
+      (is (= (:type result) :control-flow))
+      (is (= (:subtype result) :for-loop))
+      (is (map? (:initialization result)))
+      (is (map? (:condition result)))
+      (is (map? (:step result)))
       (log/debug "Тест завершен успешно"))))
 
 ;; Тесты для парсинга циклов while
@@ -422,3 +477,76 @@
       (is (= (:original-type result) "int"))
       (is (= (:new-type result) "Integer"))
       (log/debug "Тест завершен успешно"))))
+
+;; Тесты для парсинга присваивания
+(deftest test-parse-assignment
+  (testing "Простое присваивание"
+    (log/debug "Начало теста: Простое присваивание")
+    (let [tokens (create-tokens
+                  [:identifier "x"]
+                  [:operator "="]
+                  [:int_number "42"]
+                  [:separator ";"])
+          result (parser/parse-assignment tokens)]
+      (is (= (:type result) :assignment))
+      (is (= (get-in result [:left :value]) "x"))
+      (is (= (:operator result) "="))
+      (is (= (get-in result [:right :value]) "42"))
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Составное присваивание с +="
+    (log/debug "Начало теста: Составное присваивание +=")
+    (let [tokens (create-tokens
+                  [:identifier "counter"]
+                  [:operator "+="]
+                  [:int_number "1"]
+                  [:separator ";"])
+          result (parser/parse-assignment tokens)]
+      (is (= (:type result) :assignment))
+      (is (= (get-in result [:left :value]) "counter"))
+      (is (= (:operator result) "+="))
+      (is (= (get-in result [:right :value]) "1"))
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Присваивание со сложным выражением справа"
+    (log/debug "Начало теста: Присваивание со сложным выражением")
+    (let [tokens (create-tokens
+                  [:identifier "result"]
+                  [:operator "="]
+                  [:identifier "a"]
+                  [:operator "+"]
+                  [:identifier "b"]
+                  [:operator "*"]
+                  [:int_number "2"]
+                  [:separator ";"])
+          result (parser/parse-assignment tokens)]
+      (is (= (:type result) :assignment))
+      (is (= (get-in result [:left :value]) "result"))
+      (is (= (:operator result) "="))
+      (is (map? (:right result)))
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Ошибка: отсутствует точка с запятой"
+    (log/debug "Начало теста: Отсутствует точка с запятой")
+    (let [tokens (create-tokens
+                  [:identifier "x"]
+                  [:operator "="]
+                  [:int_number "42"])]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Отсутствует точка с запятой"
+           (parser/parse-assignment tokens)))
+      (log/debug "Тест на отсутствие точки с запятой завершен")))
+
+  (testing "Ошибка: некорректный оператор присваивания"
+    (log/debug "Начало теста: Некорректный оператор")
+    (let [tokens (create-tokens
+                  [:identifier "x"]
+                  [:operator "++"]
+                  [:int_number "42"]
+                  [:separator ";"])]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Некорректное присваивание - ожидается оператор ="
+           (parser/parse-assignment tokens)))
+      (log/debug "Тест на некорректный оператор завершен"))))

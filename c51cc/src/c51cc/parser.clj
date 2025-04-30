@@ -32,6 +32,7 @@
         parse-pointer-declaration
         parse-program
         parse-return
+        parse-statement
         parse-struct-declaration
         parse-switch-case
         parse-typedef
@@ -219,28 +220,74 @@
           base-result)))))
 
 (defn- ^:private parse-variable-declaration 
-  "Парсинг объявления переменной"
+  "Парсинг объявления переменной и присваивания
+   
+   Поддерживает два формата:
+   1. type identifier [= expression];
+   2. identifier = expression;
+   
+   Возвращает карту с результатами парсинга"
   [tokens]
   (log/debug "Начало парсинга объявления переменной")
   (log/trace "Входящие токены для объявления переменной: " (pr-str (take 5 tokens)))
   
-  (let [[type-token & remaining] tokens
-        [name-token & after-name] remaining]
-    (when-not (and (= (:type type-token) :type-keyword)
-                   (= (:type name-token) :identifier))
-      (log/error "Ошибка при парсинге объявления переменной. Токены: " (pr-str tokens))
-      (throw (ex-info "Некорректное объявление переменной"
-                      {:tokens tokens})))
+  (let [[first-token & remaining] tokens]
+    (cond
+      ;; Случай объявления с типом
+      (= (:type first-token) :type-keyword)
+      (let [[name-token & after-name] remaining]
+        (when-not (= (:type name-token) :identifier)
+          (log/error "Ожидается идентификатор после типа")
+          (throw (ex-info "Некорректное объявление переменной"
+                          {:tokens tokens})))
+        
+        (let [[next-token & after-next] after-name]
+          (if (= (:value next-token) "=")
+            ;; Объявление с инициализацией
+            (let [init-expr (parse-expression after-next)
+                  [semicolon & after-semicolon] (:tokens init-expr)]
+              (when-not (= (:value semicolon) ";")
+                (log/error "Ожидается точка с запятой после инициализации")
+                (throw (ex-info "Отсутствует точка с запятой"
+                                {:tokens tokens})))
+              
+              {:type :variable-declaration
+               :var-type (str (:value first-token))
+               :name (:value name-token)
+               :init-value init-expr
+               :tokens after-semicolon})
+            
+            ;; Простое объявление
+            {:type :variable-declaration
+             :var-type (str (:value first-token))
+             :name (:value name-token)
+             :tokens after-name})))
+      
+      ;; Случай простого присваивания
+      (= (:type first-token) :identifier)
+      (let [[op-token & after-op] remaining]
+        (when-not (= (:value op-token) "=")
+          (log/error "Ожидается оператор = после идентификатора")
+          (throw (ex-info "Некорректное присваивание"
+                          {:tokens tokens})))
+        
+        (let [init-expr (parse-expression after-op)
+              [semicolon & after-semicolon] (:tokens init-expr)]
+          (when-not (= (:value semicolon) ";")
+            (log/error "Ожидается точка с запятой после присваивания")
+            (throw (ex-info "Отсутствует точка с запятой"
+                            {:tokens tokens})))
+          
+          {:type :assignment
+           :name (:value first-token)
+           :value init-expr
+           :tokens after-semicolon}))
+      
+      :else
+      (throw (ex-info "Некорректное начало объявления переменной"
+                      {:tokens tokens})))))
 
-    (log/info "Распознана переменная: " (:value name-token) 
-              " типа " (:value type-token))
-    
-    {:type (:variable-declaration ast-node-types)
-     :var-type (str (:value type-token))
-     :name (:value name-token)
-     :tokens after-name}))
-
-(defn- ^:private parse-expression
+(defn parse-expression
   "Парсинг выражений с поддержкой сложных конструкций
    
    Ключевые возможности:
@@ -294,82 +341,131 @@
       (throw (ex-info "Неподдерживаемое выражение"
                       {:tokens tokens})))))
 
-(defn- ^:private parse-assignment 
-  "Семантический парсинг присваивания"
+(defn parse-assignment 
+  "Семантический парсинг присваивания
+
+  Грамматика:
+  identifier = expression;
+  identifier op= expression;  // где op может быть +, -, *, /, %, &, |, ^
+
+  Ключевые аспекты парсинга:
+  - Поддержка простого присваивания
+  - Поддержка составных операторов (+=, -=, etc.)
+  - Корректная обработка выражений справа
+  - Проверка точки с запятой"
   [tokens]
   (log/debug "Начало парсинга присваивания")
+  (log/trace "Входящие токены для присваивания: " (pr-str (take 5 tokens)))
   
-  (let [[left-token & after-left] tokens
-        [op-token & after-op] after-left
-        [right-token & after-right] after-op]
-    (when-not (and (= (:type left-token) :identifier)
-                   (= (:value op-token) "="))
-      (throw (ex-info "Некорректное присваивание"
+  (let [[left-token & after-left] tokens]
+    ;; Проверка левой части
+    (when-not (= (:type left-token) :identifier)
+      (log/error "Ожидается идентификатор слева от присваивания")
+      (throw (ex-info "Некорректное присваивание - ожидается идентификатор"
                       {:tokens tokens})))
     
-    {:type (:assignment ast-node-types)
-     :left {:type (:identifier ast-node-types)
-            :value (:value left-token)}
-     :right (parse-expression (list right-token))
-     :tokens after-right}))
+    (let [[op-token & after-op] after-left]
+      ;; Проверка оператора присваивания
+      (when-not (or (= (:value op-token) "=")
+                    (re-matches #"[+\-*/%&|^]=" (:value op-token)))
+        (log/error "Ожидается оператор присваивания")
+        (throw (ex-info "Некорректное присваивание - ожидается оператор ="
+                        {:tokens tokens})))
+      
+      ;; Парсинг правой части
+      (let [right-expr (parse-expression after-op)
+            [semicolon & after-semicolon] (:tokens right-expr)]
+        
+        ;; Проверка точки с запятой
+        (when-not (= (:value semicolon) ";")
+          (log/error "Ожидается точка с запятой после присваивания")
+          (throw (ex-info "Отсутствует точка с запятой"
+                          {:tokens tokens})))
+        
+        ;; Формирование результата
+        {:type (:assignment ast-node-types)
+         :left {:type (:identifier ast-node-types)
+                :value (:value left-token)}
+         :operator (:value op-token)
+         :right right-expr
+         :tokens after-semicolon}))))
 
-(defn internal-parse-function-body
-  "Парсит тело функции, собирая все токены до закрывающей фигурной скобки"
+(defn- ^:private internal-parse-function-body
+  "Парсинг тела функции с учетом вложенности блоков
+   
+   Параметры:
+   - tokens: список токенов
+   - depth: текущая глубина вложенности
+   
+   Возвращает:
+   - :body - список узлов AST
+   - :tokens - оставшиеся токены"
   [tokens depth]
   (log/debug "Начало парсинга тела функции. Глубина:" depth)
+  
   (loop [remaining tokens
-         body-tokens []
-         brace-count 1
-         iterations 0]
-    (when (> iterations *max-iterations*)
-      (throw (ex-info "Возможный бесконечный цикл при парсинге тела функции"
-                     {:depth depth
-                      :brace-count brace-count
-                      :iterations iterations
-                      :remaining-count (count remaining)})))
-    
-    (if (empty? remaining)
-      (do
-        (log/error "Неожиданный конец токенов при парсинге тела функции")
-        (throw (ex-info "Неожиданный конец токенов"
-                       {:depth depth
-                        :brace-count brace-count
-                        :collected-tokens body-tokens})))
-      
-      (let [token (first remaining)
-            token-type (:type token)]
-        (log/trace "Обработка токена:" token "на итерации" iterations)
+         body []]
+    (let [[current & rest] remaining]
+      (cond
+        ;; Пустой список токенов
+        (nil? current)
+        (do
+          (log/error "Неожиданный конец токенов при парсинге тела функции")
+          (throw (ex-info "Неожиданный конец токенов"
+                          {:depth depth})))
         
-        (cond
-          ;; Увеличиваем счетчик при открывающей скобке
-          (and (= token-type :separator)
-               (= (:value token) "{"))
-          (recur (rest remaining)
-                 (conj body-tokens token)
-                 (inc brace-count)
-                 (inc iterations))
-          
-          ;; Уменьшаем счетчик при закрывающей скобке
-          (and (= token-type :separator)
-               (= (:value token) "}"))
-          (if (= brace-count 1)
-            ;; Нашли закрывающую скобку на нужном уровне
-            (do
-              (log/debug "Завершение парсинга тела функции. Собрано токенов:" (count body-tokens))
-              {:remaining (rest remaining)
-               :body-tokens body-tokens})
-            ;; Продолжаем поиск
-            (recur (rest remaining)
-                   (conj body-tokens token)
-                   (dec brace-count)
-                   (inc iterations)))
-          
-          ;; Собираем все остальные токены
-          :else
-          (recur (rest remaining)
-                 (conj body-tokens token)
-                 brace-count
-                 (inc iterations)))))))
+        ;; Закрывающая скобка - конец текущего блока
+        (= (:value current) "}")
+        (do
+          (log/debug "Найден конец блока на глубине:" depth)
+          {:body body
+           :tokens rest})
+        
+        ;; Пустой оператор (точка с запятой)
+        (= (:value current) ";")
+        (recur rest body)
+        
+        ;; Открывающая скобка - вложенный блок
+        (= (:value current) "{")
+        (let [nested-result (internal-parse-function-body rest (inc depth))]
+          (recur (:tokens nested-result)
+                 (conj body {:type :block
+                            :body (:body nested-result)})))
+        
+        ;; Парсинг выражения или оператора
+        :else
+        (let [stmt-result (parse-statement (cons current rest))]
+          (recur (:tokens stmt-result)
+                 (conj body stmt-result)))))))
+
+;; Парсинг отдельных операторов
+(defn- ^:private parse-statement
+  "Парсинг одного оператора в теле функции
+   
+   Поддерживает:
+   - Объявления переменных
+   - Присваивания
+   - Управляющие конструкции
+   - Выражения"
+  [tokens]
+  (let [[first-token & _] tokens]
+    (case (:type first-token)
+      :type-keyword (parse-variable-declaration tokens)
+      :keyword (case (:value first-token)
+                "if" (parse-if-else tokens)
+                "for" (parse-for-loop tokens)
+                "while" (parse-while-loop tokens)
+                "do" (parse-do-while tokens)
+                "switch" (parse-switch-case tokens)
+                "break" (parse-break-continue tokens)
+                "continue" (parse-break-continue tokens)
+                "return" (parse-return tokens)
+                (throw (ex-info "Неизвестное ключевое слово"
+                               {:token first-token})))
+      :identifier (if (= (:value (second tokens)) "(")
+                   (parse-function-call tokens)
+                   (parse-assignment tokens))
+      (parse-expression tokens))))
 
 ;; Реализации парсера
 (defn parse-program
@@ -403,65 +499,115 @@
 
 ;; Добавление парсера для циклов for
 (defn parse-for-loop 
-  "Семантический парсинг цикла for с расширенной диагностикой
-
-  Грамматика цикла for:
-  for (initialization; condition; increment) {
-    body
-  }
-
-  Ключевые аспекты парсинга:
-  - Строгий синтаксический контроль
-  - Поддержка сложных инициализаций, условий и инкрементов
-  - Робастная обработка ошибок"
+  "Семантический парсинг цикла for с использованием лексера
+   
+   Грамматика:
+   for (initialization; condition; step) {
+     [statement]  // может быть пустым (;) или блоком
+   }
+   
+   Токены лексера:
+   - :keyword     - ключевое слово 'for'
+   - :separator   - разделители (, ), {, }, ;
+   - :identifier  - идентификаторы
+   - :operator    - операторы =, <, >, ++, etc.
+   - :int_number  - числовые литералы"
   [tokens]
   (log/debug "Начало парсинга цикла for")
-  (log/trace "Входящие токены для цикла for: " (pr-str (take 10 tokens)))
-
-  (let [[for-token & after-for] tokens
-        [open-paren & after-open] after-for]
+  (log/trace "Токены лексера для for: " (pr-str (take 15 tokens)))
+  
+  (letfn [(expect-token [token-seq type value]
+            (let [token (first token-seq)]
+              (when-not (and (= (:type token) type)
+                            (= (:value token) value))
+                (log/error "Ожидается токен" type value "получен:" token)
+                (throw (ex-info (str "Ожидается " value)
+                              {:expected {:type type :value value}
+                               :received token})))))]
     
-    (when-not (and (= (:value for-token) "for")
-                   (= (:value open-paren) "("))
-      (log/error "Некорректное начало цикла for. Токены: " (pr-str tokens))
-      (throw (ex-info "Некорректное объявление цикла for" 
-                      {:tokens tokens})))
+    ;; Проверка начальных токенов
+    (expect-token tokens :keyword "for")
+    (expect-token (rest tokens) :separator "(")
     
-    (log/debug "Распознано ключевое слово for")
-    
-    ;; Парсинг инициализации
-    (let [init-result (parse-variable-declaration (rest after-open))
-          [semicolon1 & after-init] (:tokens init-result)
+    (let [current-tokens (nnext tokens) ;; Пропускаем 'for' и '('
+          
+          ;; Парсинг инициализации
+          init-result 
+          (let [[id-token & after-id] current-tokens]
+            (when-not (= (:type id-token) :identifier)
+              (throw (ex-info "Ожидается идентификатор в инициализации"
+                            {:token id-token})))
+            
+            (let [[eq-token & after-eq] after-id]
+              (when-not (and (= (:type eq-token) :operator)
+                            (= (:value eq-token) "="))
+                (throw (ex-info "Ожидается оператор = в инициализации"
+                              {:token eq-token})))
+              
+              ;; Парсинг значения инициализации до точки с запятой
+              (let [init-value-tokens (take-while #(not= (:value %) ";") after-eq)
+                    remaining-tokens (drop (count init-value-tokens) after-eq)
+                    init-expr (parse-expression init-value-tokens)
+                    [semicolon & after-semicolon] remaining-tokens]
+                
+                (when-not (and (= (:type semicolon) :separator)
+                              (= (:value semicolon) ";"))
+                  (throw (ex-info "Ожидается ; после инициализации"
+                                {:token semicolon})))
+                
+                {:node {:type :assignment
+                       :name (:value id-token)
+                       :value init-expr}
+                 :remaining after-semicolon})))
           
           ;; Парсинг условия
-          condition-result (parse-expression after-init)
-          [semicolon2 & after-condition] (:tokens condition-result)
+          condition-result
+          (let [condition-tokens (take-while #(not= (:value %) ";") (:remaining init-result))
+                remaining-tokens (drop (count condition-tokens) (:remaining init-result))
+                condition-expr (parse-expression condition-tokens)
+                [semicolon & after-semicolon] remaining-tokens]
+            
+            (when-not (and (= (:type semicolon) :separator)
+                          (= (:value semicolon) ";"))
+              (throw (ex-info "Ожидается ; после условия"
+                            {:token semicolon})))
+            
+            {:node condition-expr
+             :remaining after-semicolon})
           
-          ;; Парсинг инкремента
-          increment-result (parse-expression (rest after-condition))
-          [close-paren & after-close] (:tokens increment-result)
+          ;; Парсинг шага
+          step-result
+          (let [step-tokens (take-while #(not= (:value %) ")") (:remaining condition-result))
+                remaining-tokens (drop (count step-tokens) (:remaining condition-result))
+                step-expr (parse-expression step-tokens)
+                [close-paren & after-paren] remaining-tokens]
+            
+            (when-not (and (= (:type close-paren) :separator)
+                          (= (:value close-paren) ")"))
+              (throw (ex-info "Ожидается ) после шага"
+                            {:token close-paren})))
+            
+            {:node step-expr
+             :remaining after-paren})
           
           ;; Парсинг тела цикла
-          [open-brace & after-open-brace] after-close
-          body-result (internal-parse-function-body after-open-brace 1)]
+          [open-brace & after-brace] (:remaining step-result)]
       
-      (when-not (and (= (:value semicolon1) ";")
-                     (= (:value semicolon2) ";")
-                     (= (:value close-paren) ")")
+      (when-not (and (= (:type open-brace) :separator)
                      (= (:value open-brace) "{"))
-        (log/error "Некорректный синтаксис цикла for")
-        (throw (ex-info "Ошибка в синтаксисе цикла for"
-                        {:tokens tokens})))
+        (throw (ex-info "Ожидается { после for(...)"
+                      {:token open-brace})))
       
-      (log/info "Успешный парсинг цикла for")
-      
-      {:type (:control-flow ast-node-types)
-       :subtype :for-loop
-       :initialization init-result
-       :condition condition-result
-       :increment increment-result
-       :body (:body body-result)
-       :tokens (:tokens body-result)})))
+      (let [body-result (internal-parse-function-body after-brace 1)]
+        (log/info "Успешный парсинг цикла for")
+        
+        {:type :control-flow
+         :subtype :for-loop
+         :initialization (:node init-result)
+         :condition (:node condition-result)
+         :step (:node step-result)
+         :body (:body body-result)
+         :tokens (:tokens body-result)}))))
 
 ;; Объявление парсера для while-циклов
 (declare parse-while-loop)
