@@ -2,7 +2,7 @@
   "Модуль для синтаксического анализатора"
   (:require [c51cc.lexer  :as lexer]
             [c51cc.logger :as log]
-            [c51cc.ast  :as ast]
+            [c51cc.ast    :as ast]  ;; Explicitly require the ast namespace
             [clojure.stacktrace :as stacktrace]
             [clojure.set :as set]
             ))
@@ -58,6 +58,7 @@
         parse-sfr-keyword
         parse-type-keyword
         parse-variable-declaration
+        extract-used-registers
         )
 
 (def ^:dynamic *current-debug-level* 
@@ -70,12 +71,7 @@
 ;; Типы узлов абстрактного синтаксического дерева (AST)
 (def ast-node-types
   "Типы узлов абстрактного синтаксического дерева (AST)"
-  {:program :program
-   :function-declaration :function-declaration
-   :variable-declaration :variable-declaration
-   :function-call :function-call
-   :control-flow :control-flow
-   :expression :expression})
+  ast/node-types)  ;; Replace the existing ast-node-types with a reference to the ast namespace
 
 (defn- ^:private internal-parse-parameters 
   "Семантический парсинг параметров функции"
@@ -1920,14 +1916,7 @@
 
 ;; Функции для валидации ограничений 8051
 (defn- ^:private validate-memory-constraints 
-  "Валидация ограничений памяти 8051
-   
-   Проверяемые ограничения:
-   - DATA: 128 байт (0x00-0x7F)
-   - XDATA: 64KB (0x0000-0xFFFF)
-   - CODE: 64KB (0x0000-0xFFFF)
-   - Битовая область: 16 байт (0x20-0x2F)
-   - Стек: в DATA памяти"
+  "Валидация ограничений памяти 8051"
   [ast]
   (log/debug "Валидация ограничений памяти")
   (doseq [node (:nodes ast)]
@@ -1954,8 +1943,8 @@
         
         nil))
       
-      nil))
-  ast)
+      nil)
+  ast)  ;; Ensure the function returns the ast
 
 (defn- ^:private validate-interrupt-vectors 
   "Валидация векторов прерываний 8051
@@ -2022,7 +2011,7 @@
                      {:function (:name node)})))
         
         ;; Проверка конфликтов банков регистров
-        (when (> (count (filter #(.startsWith % "R") @used-registers)) 8)
+        (when (> (count (filter #(.startsWith ^String % "R") @used-registers)) 8)
           (log/warn "Возможное некорректное использование банков регистров:"
                    {:function (:name node)
                     :registers @used-registers})))))
