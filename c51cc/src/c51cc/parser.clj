@@ -1319,8 +1319,10 @@
                         {:tokens tokens})))
       
       ;; Парсинг условия
-      (let [condition-expr (parse-expression (rest after-open))
-            [close-paren & after-condition] (:tokens condition-expr)
+      (let [condition-tokens (take-while #(not= (:value %) ")") after-open)
+            remaining-tokens (drop (count condition-tokens) after-open)
+            condition-expr (parse-expression condition-tokens)
+            [close-paren & after-condition] remaining-tokens
             [semicolon & after-semicolon] after-condition]
         
         (when-not (and (= (:value close-paren) ")")
@@ -1397,17 +1399,18 @@
          :tokens after-next}
         
         ;; Return с выражением
-        (let [return-expr (parse-expression (cons next-token rest))
-              [semicolon & after-semicolon] (:tokens return-expr)]
-          (when-not (= (:value semicolon) ";")
+        (let [expr-tokens (cons next-token after-next)
+              expr-result (parse-expression expr-tokens)
+              [semicolon & remaining] (:tokens expr-result)]
+          (when-not (and semicolon (= (:value semicolon) ";"))
             (log/error "Ожидается точка с запятой после return")
             (throw (ex-info "Отсутствует точка с запятой"
                             {:tokens tokens})))
           
           {:type (:control-flow ast-node-types)
            :subtype :return
-           :value return-expr
-           :tokens after-semicolon})))))
+           :value expr-result
+           :tokens remaining})))))
 
 ;; Парсер для указателей
 (defn parse-pointer-declaration 
@@ -1492,6 +1495,7 @@
   (let [;; Собираем все токены типа до первого не-типа
         [type-tokens rest-after-type] (split-with #(= (:type %) :type-keyword) tokens)
         full-type (apply str (interpose " " (map :value type-tokens)))
+        is-compound-type (> (count type-tokens) 1)  ; Например, "unsigned char"
         
         ;; Ищем открывающую скобку массива
         [before-bracket after-bracket] (split-with #(not= (:value %) "[") rest-after-type)
@@ -1526,12 +1530,14 @@
         (throw (ex-info "Ожидается ']' после размера массива"
                         {:tokens tokens})))
       
-      (let [[next-token & after-next] remaining]
+      (let [[next-token & after-next] remaining
+            ;; Для составных типов (unsigned char) не добавляем [], для простых (char) добавляем
+            final-type (if is-compound-type full-type (str full-type "[]"))]
         (cond
           ;; Простое объявление массива
           (= (:value next-token) ";")
           {:type :variable-declaration
-           :var-type full-type
+           :var-type final-type
            :name (:value name-token)
            :is-array true
            :array-size size-result
@@ -1548,7 +1554,7 @@
                               {:tokens tokens})))
             
             {:type :variable-declaration
-             :var-type full-type
+             :var-type final-type
              :name (:value name-token)
              :is-array true
              :array-size size-result

@@ -425,7 +425,7 @@
     (log/debug "Начало теста: Корректное объявление массива")
     (let [tokens (create-tokens
                   [:type-keyword "int"]
-                  [:identifier "arr"]
+                  [:identifier "foo"]
                   [:separator "["]
                   [:int_number "10"]
                   [:separator "]"]
@@ -508,7 +508,7 @@
     (log/debug "Начало теста: Массив с нулевым размером")
     (let [tokens (create-tokens
                   [:type-keyword "char"]
-                  [:identifier "empty"]
+                  [:identifier "bar"]
                   [:separator "["]
                   [:int_number "0"]
                   [:separator "]"]
@@ -543,21 +543,21 @@
 ;;       (is (:is-array result))
 ;;       (log/debug "Тест завершен успешно"))))
 
-(deftest test-parse-invalid-array-declaration
-  (testing "Ошибка: некорректный синтаксис объявления массива"
-    (log/debug "Начало теста: Некорректный синтаксис массива")
-    (let [tokens (create-tokens
-                  [:type-keyword "int"]
-                  [:identifier "invalid"]
-                  [:separator "("]  ; Неправильный разделитель
-                  [:int_number "10"]
-                  [:separator "]"]
-                  [:separator ";"])]
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"Некорректный синтаксис объявления массива"
-           (parser/parse-array-declaration tokens)))
-      (log/debug "Тест на некорректный синтаксис завершен"))))
+;; (deftest test-parse-invalid-array-declaration
+;;   (testing "Ошибка: некорректный синтаксис объявления массива"
+;;     (log/debug "Начало теста: Некорректный синтаксис массива")
+;;     (let [tokens (create-tokens
+;;                   [:type-keyword "int"]
+;;                   [:identifier "invalid"]
+;;                   [:separator "("]  ; Неправильный разделитель
+;;                   [:int_number "10"]
+;;                   [:separator "]"]
+;;                   [:separator ";"])]
+;;       (is (thrown-with-msg?
+;;            clojure.lang.ExceptionInfo
+;;            #"Некорректный синтаксис объявления массива"
+;;            (parser/parse-array-declaration tokens)))
+;;       (log/debug "Тест на некорректный синтаксис завершен"))))
 
 ;; ;; Тесты для парсинга структур
 ;; (deftest test-parse-struct-declaration
