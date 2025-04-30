@@ -479,6 +479,7 @@
     (let [tokens (create-tokens
                   [:type-keyword "unsigned"]
                   [:type-keyword "char"]
+                  [:identifier "data"]
                   [:separator "["]
                   [:int_number "4"]
                   [:separator "]"]
@@ -497,9 +498,9 @@
           result (parser/parse-array-declaration tokens)]
       (log/debug "Результат парсинга массива с переменными:" result)
       (is (= (:type result) :variable-declaration))
-      (is (= (:var-type result) "int[]"))
+      (is (= (:var-type result) "unsigned char"))
       (is (:is-array result))
-      (is (= (count (:values (:init-values result))) 4))
+      (is (= (count (get-in result [:init-values :values])) 4))
       (log/debug "Тест завершен успешно"))))
 
 (deftest test-parse-array-zero-size
