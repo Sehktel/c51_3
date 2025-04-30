@@ -421,9 +421,9 @@
         ;; Пустой список токенов
         (nil? current)
         (do
-          (log/error "Неожиданный конец токенов при парсинге тела функции")
-          (throw (ex-info "Неожиданный конец токенов"
-                          {:depth depth})))
+          (log/warn "Достигнут конец токенов при парсинге тела функции")
+          {:body body
+           :tokens []})
         
         ;; Закрывающая скобка - конец текущего блока
         (= (:value current) "}")
@@ -633,9 +633,10 @@
   }
 
   Ключевые аспекты парсинга:
-  - Строгий синтаксический контроль
-  - Поддержка сложных условий
-  - Робастная обработка ошибок"
+  - Строгая проверка типов токенов из лексера
+  - Корректная обработка условий
+  - Поддержка вложенных блоков
+  - Улучшенная диагностика ошибок"
   [tokens]
   (log/debug "Начало парсинга цикла while")
   (log/trace "Входящие токены для цикла while: " (pr-str (take 10 tokens)))
@@ -651,27 +652,43 @@
     
     (log/debug "Распознано ключевое слово while")
     
-    ;; Парсинг условия
-    (let [condition-result (parse-expression (rest after-open))
-          [close-paren & after-condition] (:tokens condition-result)
+    ;; Собираем токены для условия до закрывающей скобки
+    (let [condition-tokens (take-while #(not= (:value %) ")") after-open)
+          remaining-after-condition (drop (count condition-tokens) after-open)
+          [close-paren & after-close] remaining-after-condition]
+      
+      ;; Проверяем наличие закрывающей скобки
+      (when-not (and close-paren 
+                     (= (:type close-paren) :separator)
+                     (= (:value close-paren) ")"))
+        (log/error "Ожидается закрывающая скобка после условия")
+        (throw (ex-info "Отсутствует закрывающая скобка"
+                       {:expected {:type :separator :value ")"}
+                        :received close-paren})))
+      
+      ;; Парсим условие
+      (let [condition-expr (parse-expression condition-tokens)
+            
+            ;; Проверка открывающей фигурной скобки
+            [true-open-brace & after-true-open] after-close]
+        
+        (when-not (and (= (:type true-open-brace) :separator)
+                       (= (:value true-open-brace) "{"))
+          (log/error "Ожидается открывающая фигурная скобка")
+          (throw (ex-info "Отсутствует открывающая фигурная скобка"
+                         {:expected {:type :separator :value "{"}
+                          :received true-open-brace})))
+        
+        ;; Парсинг тела цикла
+        (let [body-result (internal-parse-function-body after-true-open 1)]
           
-          ;; Парсинг тела цикла
-          [open-brace & after-open-brace] after-condition
-          body-result (internal-parse-function-body after-open-brace 1)]
-      
-      (when-not (and (= (:value close-paren) ")")
-                     (= (:value open-brace) "{"))
-        (log/error "Некорректный синтаксис цикла while")
-        (throw (ex-info "Ошибка в синтаксисе цикла while"
-                        {:tokens tokens})))
-      
-      (log/info "Успешный парсинг цикла while")
-      
-      {:type (:control-flow ast-node-types)
-       :subtype :while-loop
-       :condition condition-result
-       :body (:body body-result)
-       :tokens (:tokens body-result)})))
+          (log/info "Успешный парсинг цикла while")
+          
+          {:type (:control-flow ast-node-types)
+           :subtype :while-loop
+           :condition condition-expr
+           :body (:body body-result)
+           :tokens (:tokens body-result)})))))
 
 ;; Объявление парсера вызова функций
 (declare parse-function-call)
@@ -2405,28 +2422,26 @@
     (if (= (:type first-token) :separator)
       (if (= (:value first-token) "{")
         (loop [remaining-tokens (rest tokens)
-               values []
-               current-value nil]
+               values []]
           (let [token (first remaining-tokens)]
             (cond
               ;; Конец инициализатора
               (and (= (:type token) :separator)
                    (= (:value token) "}"))
-              {:values values
+              {:type :array-initializer
+               :values values
                :remaining (rest remaining-tokens)}
 
               ;; Числовой литерал
               (= (:type token) :int_number)
               (recur (rest remaining-tokens)
-                     (conj values (parse-number (:value token)))
-                     nil)
+                     (conj values (parse-number (:value token))))
 
               ;; Разделитель значений
               (and (= (:type token) :separator)
                    (= (:value token) ","))
               (recur (rest remaining-tokens)
-                     values
-                     nil)
+                     values)
 
               :else
               (throw (ex-info "Неожиданный токен в инициализаторе массива"
