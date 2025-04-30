@@ -3,7 +3,6 @@
   (:require [c51cc.lexer  :as lexer]
             [c51cc.logger :as log]
             [clojure.stacktrace :as stacktrace]
-            [clojure.string :as str]
             ))
 
 ;; Парсер для языка C51 - абстракция синтаксического анализа
@@ -36,7 +35,20 @@
         parse-typedef
         parse-unary-operation
         parse-variable-declaration
-        parse-while-loop)
+        parse-while-loop
+        parse-with-context
+        parse-data-space
+        parse-xdata-space
+        parse-code-space
+        parse-default
+        recognize-memory-types
+        recognize-sfr-keywords
+        recognize-bit-addressing
+        validate-memory-constraints
+        validate-interrupt-vectors
+        validate-register-usage
+        in-sfr-context?
+        parse-bit-address)
 
 (def ^:dynamic *current-debug-level* 
   "Динамическая переменная для текущего уровня логирования.
@@ -52,10 +64,6 @@
    :function-call :function-call
    :control-flow :control-flow
    :expression :expression})
-
-
-;; Основная реализация парсера
-(defrecord C51Parser [tokens])
 
 (defn- ^:private internal-parse-parameters 
   "Семантический парсинг параметров функции"
@@ -122,7 +130,7 @@
   - Поддержка вложенных блоков
   - Робастная обработка ошибок
   - Поддержка прерываний"
-  [parser tokens]
+  [tokens]
   (log/debug "Начало расширенного парсинга объявления функции")
   (log/trace "Входящие токены для объявления функции: " (pr-str (take 5 tokens)))
   
@@ -225,22 +233,39 @@
      :tokens after-name}))
 
 (defn- ^:private parse-expression
-  "Парсинг выражений с поддержкой сложных конструкций"
+  "Парсинг выражений с поддержкой сложных конструкций
+   
+   Ключевые возможности:
+   - Поддержка идентификаторов и чисел
+   - Обработка операторов
+   - Поддержка разделителей
+   - Обработка пустых выражений"
   [tokens]
   (log/debug "Начало парсинга выражения")
+  (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
   
   (let [[first-token & remaining] tokens]
     (cond
+      ;; Пустое выражение или разделитель
+      (or (nil? first-token)
+          (= ")" (:value first-token)))
+      {:type (:expression ast-node-types)
+       :value ""
+       :tokens tokens}
+
+      ;; Идентификатор
       (= (:type first-token) :identifier)
       {:type (:expression ast-node-types)
        :value (:value first-token)
        :tokens remaining}
 
+      ;; Число
       (= (:type first-token) :int_number)
       {:type (:expression ast-node-types)
        :value (:value first-token)
        :tokens remaining}
 
+      ;; Оператор
       (= (:type first-token) :operator)
       (let [left-expr (parse-expression remaining)
             [operator & after-op] (:tokens left-expr)
@@ -250,6 +275,12 @@
                      (:value operator) 
                      (:value right-expr))
          :tokens (:tokens right-expr)})
+      
+      ;; Разделители и другие токены
+      (= (:type first-token) :separator)
+      {:type (:expression ast-node-types)
+       :value (:value first-token)
+       :tokens remaining}
       
       :else
       (throw (ex-info "Неподдерживаемое выражение"
@@ -426,28 +457,18 @@
 ;; Реализации парсера
 (defn parse-program
   "Семантический анализ программы с созданием полноценного AST"
-  [parser tokens]
-  (log/debug "Начало семантического парсинга программы")
-  
-  (loop [remaining-tokens tokens
-         parsed-nodes []]
-    (if (empty? remaining-tokens)
-      {:type (:program ast-node-types)
-       :nodes parsed-nodes}
-      (let [result (parse-function-declaration parser remaining-tokens)
-            node (dissoc result :tokens)]
-        (recur (:tokens result) (conj parsed-nodes node))))))
-
-(defn parse
-  "Основная функция парсинга с семантическим анализом
-
-   Ключевые особенности:
-   - Полный семантический анализ токенов
-   - Создание абстрактного синтаксического дерева (AST)
-   - Гибкая обработка различных конструкций языка"
-  [tokens]  
-  (log/debug "Начало семантического парсинга программы")
-  (parse-program (C51Parser. tokens) tokens))
+  ([tokens]
+   (parse-program tokens nil))
+  ([tokens context]
+   (log/debug "Начало семантического парсинга программы")
+   (loop [remaining-tokens tokens
+          parsed-nodes []]
+     (if (empty? remaining-tokens)
+       {:type (:program ast-node-types)
+        :nodes parsed-nodes}
+       (let [result (parse-function-declaration remaining-tokens)
+             node (dissoc result :tokens)]
+         (recur (:tokens result) (conj parsed-nodes node)))))))
 
 ;; Добавление парсера для циклов for
 (defn parse-for-loop 
@@ -684,8 +705,10 @@
     (log/debug "Распознано ключевое слово switch")
     
     ;; Парсинг выражения switch
-    (let [switch-expr (parse-expression (rest after-open))
-          [close-paren & after-condition] (:tokens switch-expr)
+    (let [[expr-token & remaining] after-open
+          switch-expr {:type (:expression ast-node-types)
+                      :value (:value expr-token)}
+          [close-paren & after-condition] remaining
           
           ;; Парсинг тела switch
           [open-brace & after-open-brace] after-condition]
@@ -723,8 +746,10 @@
             
             ;; Парсинг case-блока
             (= (:value current-token) "case")
-            (let [case-const (parse-expression rest)
-                  [colon & after-colon] (:tokens case-const)
+            (let [[const-token & after-const] rest
+                  case-const {:type (:expression ast-node-types)
+                             :value (:value const-token)}
+                  [colon & after-colon] after-const
                   
                   ;; Парсинг тела case
                   case-body (internal-parse-function-body after-colon)]
@@ -763,7 +788,7 @@
                      {:type :default-block
                       :body (:body default-body)}))
             
-            ;; Пропуск разделителей и других токенов
+            ;; Пропуск других токенов
             :else
             (recur rest depth cases default-case)))))))
 
@@ -1561,3 +1586,183 @@
         :else
         (throw (ex-info "Некорректный синтаксис typedef"
                         {:tokens tokens}))))))
+
+(defn parse-with-context [tokens context]
+  (case (:memory-space context)
+    :data   (parse-data-space tokens)
+    :xdata  (parse-xdata-space tokens)
+    :code   (parse-code-space tokens)
+    (parse-default tokens)))
+
+(defn tokenize-special-keywords [input]
+  (recognize-memory-types input)
+  (recognize-sfr-keywords input)
+  (recognize-bit-addressing input))
+
+(defn validate-8051-constraints [ast]
+  (validate-memory-constraints ast)
+  (validate-interrupt-vectors ast)
+  (validate-register-usage ast))
+
+(defn peek-tokens [tokens n]
+  (take n tokens))
+
+(defrecord ParsingContext [
+  memory-space    ; текущее пространство памяти
+  scope-type     ; тип области видимости
+  interrupt-context ; контекст прерывания
+])
+
+(defn parse-bit-expression [tokens context]
+  (if (in-sfr-context? context)
+    (parse-bit-address tokens)
+    (parse-bitwise-operation tokens)))
+
+(defn tokenize-c51-specific [input]
+  (let [base-tokens (lexer/tokenize input)]
+    (-> base-tokens
+        (lexer/recognize-memory-types)     ;; data, xdata, code
+        (lexer/recognize-sfr-keywords)     ;; специальные регистры
+        (lexer/recognize-bit-addressing)   ;; битовая адресация
+        (lexer/recognize-interrupts))))    ;; прерывания
+
+;; 1. Добавить специфичные для C51 токены в лексер:
+(def c51-specific-tokens
+  {:memory-types #{"data" "xdata" "code" "idata" "pdata"}
+   :sfr-keywords #{"sfr" "sbit"}
+   :bit-operators #{"^"}})
+
+;; 2. Расширить функционал лексера:
+(defn enhanced-tokenize [input]
+  (-> input
+      lexer/tokenize
+      (lexer/enrich-with-c51-specifics)
+      (lexer/validate-token-sequence)))
+
+;; 3. Интегрировать лексер в парсер:
+(defn parse [input]
+  (let [tokens (enhanced-tokenize input)
+        context (lexer/create-parsing-context tokens)]
+    (parse-program tokens context)))
+
+;; 1. Определить специфичные токены C51:
+(def ^:private c51-token-types
+  {:memory-directive :memory-directive    ;; data, xdata, code
+   :sfr-declaration :sfr-declaration     ;; sfr, sbit
+   :bit-address :bit-address            ;; P1^5
+   :interrupt-vector :interrupt-vector}) ;; interrupt N
+
+;; 2. Расширить лексер:
+(defn tokenize-c51 [input]
+  (let [base-tokens (lexer/tokenize input)]
+    (->> base-tokens
+         lexer/enrich-with-memory-directives
+         lexer/enrich-with-sfr-declarations
+         lexer/enrich-with-bit-addressing
+         lexer/enrich-with-interrupts)))
+
+;; 3. Интегрировать с парсером:
+(defn parse-c51 [input]
+  (let [tokens (tokenize-c51 input)
+        context (->ParsingContext :default nil nil)]
+    (parse-with-context tokens context)))
+
+;; Функции для парсинга в разных пространствах памяти
+(defn- ^:private parse-data-space 
+  "Парсинг в пространстве памяти DATA"
+  [tokens]
+  (log/debug "Парсинг в пространстве DATA")
+  ;; TODO: Реализовать специфичный парсинг для DATA
+  (parse-program tokens))
+
+(defn- ^:private parse-xdata-space 
+  "Парсинг в пространстве памяти XDATA"
+  [tokens]
+  (log/debug "Парсинг в пространстве XDATA")
+  ;; TODO: Реализовать специфичный парсинг для XDATA
+  (parse-program tokens))
+
+(defn- ^:private parse-code-space 
+  "Парсинг в пространстве памяти CODE"
+  [tokens]
+  (log/debug "Парсинг в пространстве CODE")
+  ;; TODO: Реализовать специфичный парсинг для CODE
+  (parse-program tokens))
+
+(defn- ^:private parse-default 
+  "Парсинг по умолчанию"
+  [tokens]
+  (log/debug "Парсинг по умолчанию")
+  (parse-program tokens))
+
+;; Функции для распознавания специальных ключевых слов
+(defn- ^:private recognize-memory-types 
+  "Распознавание типов памяти"
+  [input]
+  (log/debug "Распознавание типов памяти")
+  ;; TODO: Реализовать распознавание типов памяти
+  input)
+
+(defn- ^:private recognize-sfr-keywords 
+  "Распознавание ключевых слов SFR"
+  [input]
+  (log/debug "Распознавание ключевых слов SFR")
+  ;; TODO: Реализовать распознавание SFR
+  input)
+
+(defn- ^:private recognize-bit-addressing 
+  "Распознавание битовой адресации"
+  [input]
+  (log/debug "Распознавание битовой адресации")
+  ;; TODO: Реализовать распознавание битовой адресации
+  input)
+
+;; Функции для валидации ограничений 8051
+(defn- ^:private validate-memory-constraints 
+  "Валидация ограничений памяти"
+  [ast]
+  (log/debug "Валидация ограничений памяти")
+  ;; TODO: Реализовать валидацию памяти
+  ast)
+
+(defn- ^:private validate-interrupt-vectors 
+  "Валидация векторов прерываний"
+  [ast]
+  (log/debug "Валидация векторов прерываний")
+  ;; TODO: Реализовать валидацию прерываний
+  ast)
+
+(defn- ^:private validate-register-usage 
+  "Валидация использования регистров"
+  [ast]
+  (log/debug "Валидация использования регистров")
+  ;; TODO: Реализовать валидацию регистров
+  ast)
+
+;; Функции для работы с SFR и битовой адресацией
+(defn- ^:private in-sfr-context? 
+  "Проверка контекста SFR"
+  [context]
+  (and context 
+       (= (:scope-type context) :sfr)))
+
+(defn- ^:private parse-bit-address 
+  "Парсинг битовой адресации"
+  [tokens]
+  (log/debug "Парсинг битовой адресации")
+  (let [[sfr-token & rest] tokens]
+    (when-not (= (:type sfr-token) :identifier)
+      (throw (ex-info "Ожидается идентификатор SFR" 
+                      {:token sfr-token})))
+    
+    (let [[caret & after-caret] rest
+          [bit-num & remaining] after-caret]
+      (when-not (and (= (:value caret) "^")
+                     (= (:type bit-num) :int_number))
+        (throw (ex-info "Некорректный формат битовой адресации" 
+                        {:tokens tokens})))
+      
+      {:type :bit-address
+       :sfr (:value sfr-token)
+       :bit (Integer/parseInt (:value bit-num))
+       :tokens remaining})))

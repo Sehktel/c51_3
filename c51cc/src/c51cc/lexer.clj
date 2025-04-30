@@ -432,3 +432,159 @@
             (do 
               (log/info "Ошибка токенизации. Оставшийся код: " remaining-code)
               (throw (ex-info "Tokenization error" {:remaining-code remaining-code})))))))))
+
+;; =============================================
+;; Обогащение токенов C51-специфичной информацией
+;; =============================================
+
+(def ^:private c51-memory-spaces
+  "Пространства памяти C51"
+  #{"data" "xdata" "code" "idata" "pdata"})
+
+(def ^:private c51-sfr-keywords
+  "Ключевые слова для специальных регистров"
+  #{"sfr" "sbit"})
+
+(defn enrich-with-memory-directives
+  "Обогащает токены информацией о директивах памяти"
+  [tokens]
+  (map (fn [token]
+         (if (contains? c51-memory-spaces (:value token))
+           (assoc token 
+                  :type :memory-space
+                  :memory-type (keyword (:value token)))
+           token))
+       tokens))
+
+(defn enrich-with-sfr-declarations
+  "Обогащает токены информацией о специальных регистрах"
+  [tokens]
+  (map (fn [token]
+         (if (contains? c51-sfr-keywords (:value token))
+           (assoc token 
+                  :type :sfr-keyword
+                  :sfr-type (keyword (:value token)))
+           token))
+       tokens))
+
+(defn enrich-with-bit-addressing
+  "Обогащает токены информацией о битовой адресации"
+  [tokens]
+  (loop [remaining tokens
+         result []]
+    (let [[curr next after] (take 3 remaining)]
+      (cond
+        (empty? remaining)
+        result
+        
+        ;; Проверяем паттерн битовой адресации: reg^bit
+        (and curr next after
+             (= (:type curr) :identifier)
+             (= (:value next) "^")
+             (= (:type after) :int_number))
+        (recur (drop 3 remaining)
+               (conj result
+                     {:type :bit-address
+                      :value (str (:value curr) "^" (:value after))
+                      :register (:value curr)
+                      :bit (Integer/parseInt (:value after))}))
+        
+        :else
+        (recur (rest remaining)
+               (conj result curr))))))
+
+(defn enrich-with-interrupts
+  "Обогащает токены информацией о прерываниях"
+  [tokens]
+  (loop [remaining tokens
+         result []]
+    (let [[curr next] (take 2 remaining)]
+      (cond
+        (empty? remaining)
+        result
+        
+        ;; Проверяем паттерн прерывания: interrupt N
+        (and curr next
+             (= (:value curr) "interrupt")
+             (= (:type next) :int_number))
+        (recur (drop 2 remaining)
+               (conj result
+                     {:type :interrupt
+                      :value (str "interrupt " (:value next))
+                      :number (Integer/parseInt (:value next))}))
+        
+        :else
+        (recur (rest remaining)
+               (conj result curr))))))
+
+(defn enrich-with-c51-specifics
+  "Обогащает токены всей C51-специфичной информацией"
+  [tokens]
+  (-> tokens
+      enrich-with-memory-directives
+      enrich-with-sfr-declarations
+      enrich-with-bit-addressing
+      enrich-with-interrupts))
+
+;; =============================================
+;; Токенизация C51
+;; =============================================
+
+(defn tokenize-c51
+  "Токенизация и обогащение токенов специфичной для C51 информацией"
+  [input]
+  (log/debug "Начало токенизации C51 кода")
+  (let [base-tokens (tokenize input)]
+    (log/debug "Базовая токенизация завершена, обогащаем токены")
+    (->> base-tokens
+         enrich-with-c51-specifics)))
+
+(defn validate-token-sequence
+  "Проверяет корректность последовательности токенов"
+  [tokens]
+  (log/debug "Валидация последовательности токенов")
+  (doseq [[prev curr] (partition 2 1 tokens)]
+    (when (and (= (:type prev) :operator)
+               (= (:type curr) :operator)
+               (not (#{"+" "-" "&" "|" "^"} (:value curr))))
+      (throw (ex-info "Недопустимая последовательность операторов"
+                     {:prev prev :curr curr}))))
+  tokens)
+
+;; C51 специфичные функции лексера
+(defn recognize-memory-types
+  "Распознавание типов памяти (data, xdata, code)"
+  [tokens]
+  (log/debug "Распознавание типов памяти")
+  tokens)
+
+(defn recognize-sfr-keywords
+  "Распознавание ключевых слов SFR"
+  [tokens]
+  (log/debug "Распознавание SFR")
+  tokens)
+
+(defn recognize-bit-addressing
+  "Распознавание битовой адресации"
+  [tokens]
+  (log/debug "Распознавание битовой адресации")
+  tokens)
+
+(defn recognize-interrupts
+  "Распознавание прерываний"
+  [tokens]
+  (log/debug "Распознавание прерываний")
+  tokens)
+
+(defn enrich-with-c51-specifics
+  "Обогащение токенов C51-специфичной информацией"
+  [tokens]
+  (log/debug "Обогащение токенов C51-специфичной информацией")
+  tokens)
+
+(defn create-parsing-context
+  "Создание контекста парсинга"
+  [tokens]
+  (log/debug "Создание контекста парсинга")
+  {:scope-type :default
+   :memory-space :default})
