@@ -90,13 +90,11 @@
         {:parameters parameters 
          :tokens remaining}
         
-        ;; Случай: void без параметров 
-        (and (or (= (:type current-token) :type-keyword)
-                 (= (:type current-token) :keyword))
+        ;; Случай: void как единственный параметр
+        (and (= (:type current-token) :type-keyword)
              (= (:value current-token) "void")
              (= (:value (first rest)) ")"))
-        {:parameters [{:type :void_type_keyword 
-                       :name "void"}]
+        {:parameters [{:type "void" :name nil}]
          :tokens rest}
         
         ;; Случай: ()
@@ -108,19 +106,24 @@
         ;; Парсинг типизированного параметра
         (= (:type current-token) :type-keyword)
         (let [[name-token & next-tokens] rest]
-          (when-not (= (:type name-token) :identifier)
-            (throw (ex-info "Некорректное имя параметра" 
-                             {:token name-token})))
-          
-          (recur 
-           (if (= (:value (first next-tokens)) ",")
-             (rest next-tokens)  ; Пропускаем запятую
-             next-tokens)
-           (conj parameters 
-                 {:type {:type :type-keyword
-                         :value (:value current-token)}
-                  :name {:type :identifier
-                         :value (:value name-token)}})))
+          (if (= (:type name-token) :identifier)
+            ;; Параметр с именем
+            (recur 
+             (if (= (:value (first next-tokens)) ",")
+               (rest next-tokens)  ; Пропускаем запятую
+               next-tokens)
+             (conj parameters 
+                   {:type (:value current-token)
+                    :name (:value name-token)}))
+            ;; Параметр без имени (например void)
+            (if (= (:value (first next-tokens)) ")")
+              (recur
+               next-tokens
+               (conj parameters
+                     {:type (:value current-token)
+                      :name nil}))
+              (throw (ex-info "Некорректное имя параметра" 
+                           {:token name-token})))))
         
         ;; Разделитель между параметрами
         (= (:value current-token) ",")
@@ -344,7 +347,7 @@
                       {:tokens tokens})))))
 
 (defn parse-assignment 
-  "Семантический парсинг присваивания
+  "Семантический парсинг присваивания с поддержкой составных операторов
 
   Грамматика:
   identifier = expression;
@@ -366,27 +369,33 @@
       (throw (ex-info "Некорректное присваивание - ожидается идентификатор"
                       {:tokens tokens})))
     
-    (let [[op-token & after-op] after-left]
+    (let [[op-token & after-op] after-left
+          is-compound (and (= (:type op-token) :operator)
+                          (re-matches #"[+\-*/%&|^]=" (:value op-token)))
+          is-simple (and (= (:type op-token) :operator)
+                        (= (:value op-token) "="))]
+      
       ;; Проверка оператора присваивания
-      (when-not (or (= (:value op-token) "=")
-                    (re-matches #"[+\-*/%&|^]=" (:value op-token)))
+      (when-not (or is-compound is-simple)
         (log/error "Ожидается оператор присваивания")
         (throw (ex-info "Некорректное присваивание - ожидается оператор ="
                         {:tokens tokens})))
       
       ;; Парсинг правой части
-      (let [right-expr (parse-expression after-op)
-            [semicolon & after-semicolon] (:tokens right-expr)]
+      (let [expr-tokens (take-while #(not= (:value %) ";") after-op)
+            remaining (drop (count expr-tokens) after-op)
+            right-expr (parse-expression expr-tokens)
+            [semicolon & after-semicolon] remaining]
         
         ;; Проверка точки с запятой
-        (when-not (= (:value semicolon) ";")
+        (when-not (and semicolon (= (:value semicolon) ";"))
           (log/error "Ожидается точка с запятой после присваивания")
           (throw (ex-info "Отсутствует точка с запятой"
                           {:tokens tokens})))
         
         ;; Формирование результата
-        {:type (:assignment ast-node-types)
-         :left {:type (:identifier ast-node-types)
+        {:type :assignment
+         :left {:type :identifier
                 :value (:value left-token)}
          :operator (:value op-token)
          :right right-expr

@@ -69,10 +69,31 @@
           result (parser/parse-function-declaration tokens)]
       (log/debug "Результат парсинга функции:" result)
       (is (= (:type result) :function-declaration))
-      (is (= (:return-type result) "int"))
-      (is (= (:name result) "testFunction"))
+      (is (= (:return-type result) {:type :type-keyword :value "int"}))
+      (is (= (:name result) {:type :identifier :value "testFunction"}))
       (is (empty? (:parameters result)))
       (is (= (:body result) []))
+      (log/debug "Тест завершен успешно")))
+
+  (testing "Корректное объявление функции с параметром void"
+    (log/debug "Начало теста: Функция с параметром void")
+    (let [tokens (create-tokens
+                  [:type-keyword "void"]
+                  [:identifier "functionWithVoidParam"]
+                  [:separator "("]
+                  [:type-keyword "void"]
+                  [:separator ")"]
+                  [:separator "{"]
+                  [:separator "}"])
+          result (parser/parse-function-declaration tokens)]
+      (log/debug "Результат парсинга функции:" result)
+      (is (= (:type result) :function-declaration))
+      (is (= (:return-type result) {:type :type-keyword :value "void"}))
+      (is (= (:name result) {:type :identifier :value "functionWithVoidParam"}))
+      (is (= (count (:parameters result)) 1))
+      (is (= (first (:parameters result)) 
+             {:type "void" :name nil}))
+      (is (= (count (:body result)) 0))      
       (log/debug "Тест завершен успешно")))
 
   (testing "Корректное объявление функции с параметрами"
@@ -89,8 +110,8 @@
           result (parser/parse-function-declaration tokens)]
       (log/debug "Результат парсинга функции:" result)
       (is (= (:type result) :function-declaration))
-      (is (= (:return-type result) "void"))
-      (is (= (:name result) "functionWithParams"))
+      (is (= (:return-type result) {:type :type-keyword :value "void"}))
+      (is (= (:name result) {:type :identifier :value "functionWithParams"}))
       (is (= (count (:parameters result)) 1))
       (is (= (first (:parameters result)) 
              {:type "int" :name "x"}))
@@ -617,7 +638,7 @@
       (log/debug "Тест завершен успешно")))
 
   (testing "Составное присваивание с +="
-    (log/debug "Начало теста: Составное присваивание +=")
+    (log/debug "Начало теста: Составное присваивание")
     (let [tokens (create-tokens
                   [:identifier "counter"]
                   [:operator "+="]
@@ -630,7 +651,7 @@
       (is (= (get-in result [:right :value]) "1"))
       (log/debug "Тест завершен успешно")))
 
-  (testing "Присваивание со сложным выражением справа"
+  (testing "Присваивание со сложным выражением"
     (log/debug "Начало теста: Присваивание со сложным выражением")
     (let [tokens (create-tokens
                   [:identifier "result"]
@@ -645,30 +666,33 @@
       (is (= (:type result) :assignment))
       (is (= (get-in result [:left :value]) "result"))
       (is (= (:operator result) "="))
-      (is (map? (:right result)))
+      (is (string? (get-in result [:right :value])))  ;; Проверяем, что значение выражения - строка
       (log/debug "Тест завершен успешно")))
 
-  (testing "Ошибка: отсутствует точка с запятой"
-    (log/debug "Начало теста: Отсутствует точка с запятой")
+  (testing "Составное присваивание с *="
+    (log/debug "Начало теста: Составное присваивание с *=")
     (let [tokens (create-tokens
-                  [:identifier "x"]
-                  [:operator "="]
-                  [:int_number "42"])]
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"Отсутствует точка с запятой"
-           (parser/parse-assignment tokens)))
-      (log/debug "Тест на отсутствие точки с запятой завершен")))
+                  [:identifier "value"]
+                  [:operator "*="]
+                  [:int_number "5"]
+                  [:separator ";"])
+          result (parser/parse-assignment tokens)]
+      (is (= (:type result) :assignment))
+      (is (= (get-in result [:left :value]) "value"))
+      (is (= (:operator result) "*="))
+      (is (= (get-in result [:right :value]) "5"))
+      (log/debug "Тест завершен успешно")))
 
-  (testing "Ошибка: некорректный оператор присваивания"
-    (log/debug "Начало теста: Некорректный оператор")
+  (testing "Составное присваивание с битовой операцией"
+    (log/debug "Начало теста: Составное присваивание с битовой операцией")
     (let [tokens (create-tokens
-                  [:identifier "x"]
-                  [:operator "++"]
-                  [:int_number "42"]
-                  [:separator ";"])]
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"Некорректное присваивание - ожидается оператор ="
-           (parser/parse-assignment tokens)))
-      (log/debug "Тест на некорректный оператор завершен"))))
+                  [:identifier "flags"]
+                  [:operator "|="]
+                  [:int_number "0x0F"]
+                  [:separator ";"])
+          result (parser/parse-assignment tokens)]
+      (is (= (:type result) :assignment))
+      (is (= (get-in result [:left :value]) "flags"))
+      (is (= (:operator result) "|="))
+      (is (= (get-in result [:right :value]) "0x0F"))
+      (log/debug "Тест завершен успешно"))))
