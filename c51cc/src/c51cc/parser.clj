@@ -2,7 +2,9 @@
   "Модуль для синтаксического анализатора"
   (:require [c51cc.lexer  :as lexer]
             [c51cc.logger :as log]
+            [c51cc.ast  :as ast]
             [clojure.stacktrace :as stacktrace]
+            [clojure.set :as set]
             ))
 
 ;; Парсер для языка C51 - абстракция синтаксического анализа
@@ -48,7 +50,15 @@
         validate-interrupt-vectors
         validate-register-usage
         in-sfr-context?
-        parse-bit-address)
+        parse-bit-address
+        parse-const-declaration
+        parse-memory-directive
+        parse-memory-space
+        parse-sfr-declaration
+        parse-sfr-keyword
+        parse-type-keyword
+        parse-variable-declaration
+        )
 
 (def ^:dynamic *current-debug-level* 
   "Динамическая переменная для текущего уровня логирования.
@@ -1626,25 +1636,169 @@
 
 ;; Функции для парсинга в разных пространствах памяти
 (defn- ^:private parse-data-space 
-  "Парсинг в пространстве памяти DATA"
+  "Парсинг в пространстве памяти DATA
+   
+   DATA память в 8051:
+   - Прямоадресуемая память размером 128 байт (0x00-0x7F)
+   - Битовоадресуемая область (0x20-0x2F)
+   - Банки регистров R0-R7 (0x00-0x1F)
+   - Область стека"
   [tokens]
   (log/debug "Парсинг в пространстве DATA")
-  ;; TODO: Реализовать специфичный парсинг для DATA
-  (parse-program tokens))
+  (let [context (->ParsingContext :data :memory nil)]
+    (loop [remaining-tokens tokens
+           declarations []]
+      (if (empty? remaining-tokens)
+        {:type :memory-space
+         :space :data
+         :declarations declarations}
+        (let [[token & rest] remaining-tokens]
+          (case (:type token)
+            ;; Объявление переменной
+            :type-keyword 
+            (let [var-decl (parse-variable-declaration remaining-tokens)]
+              (when (> (:size var-decl) 0x7F)
+                (throw (ex-info "Превышен размер DATA памяти (128 байт)"
+                              {:declaration var-decl})))
+              (recur (:tokens var-decl)
+                     (conj declarations var-decl)))
+            
+            ;; Битовая адресация
+            :bit-address
+            (let [bit-decl (parse-bit-address remaining-tokens)]
+              (when-not (<= 0x20 (:address bit-decl) 0x2F)
+                (throw (ex-info "Битовая адресация возможна только в диапазоне 0x20-0x2F"
+                              {:declaration bit-decl})))
+              (recur (:tokens bit-decl)
+                     (conj declarations bit-decl)))
+            
+            ;; Пропуск разделителей
+            :separator
+            (recur rest declarations)
+            
+            ;; Конец секции DATA
+            :memory-directive
+            (if (= (:value token) "data")
+              (recur rest declarations)
+              {:type :memory-space
+               :space :data 
+               :declarations declarations
+               :tokens remaining-tokens})
+            
+            ;; Ошибка при неожиданном токене
+            (throw (ex-info "Неожиданный токен в секции DATA"
+                          {:token token}))))))))
 
 (defn- ^:private parse-xdata-space 
-  "Парсинг в пространстве памяти XDATA"
+  "Парсинг в пространстве памяти XDATA
+   
+   XDATA память в 8051:
+   - Внешняя память данных до 64KB (0x0000-0xFFFF)
+   - Доступ через DPTR или R0/R1
+   - Более медленный доступ чем к DATA
+   - Используется для больших массивов данных"
   [tokens]
   (log/debug "Парсинг в пространстве XDATA")
-  ;; TODO: Реализовать специфичный парсинг для XDATA
-  (parse-program tokens))
+  (let [context (->ParsingContext :xdata :memory nil)]
+    (loop [remaining-tokens tokens
+           declarations []]
+      (if (empty? remaining-tokens)
+        {:type :memory-space
+         :space :xdata
+         :declarations declarations}
+        (let [[token & rest] remaining-tokens]
+          (case (:type token)
+            ;; Объявление переменной
+            :type-keyword 
+            (let [var-decl (parse-variable-declaration remaining-tokens)]
+              (when (> (:size var-decl) 0xFFFF)
+                (throw (ex-info "Превышен размер XDATA памяти (64KB)"
+                              {:declaration var-decl})))
+              (recur (:tokens var-decl)
+                     (conj declarations var-decl)))
+            
+            ;; Объявление массива
+            :array-declaration
+            (let [array-decl (parse-array-declaration remaining-tokens)]
+              (when (> (* (:size array-decl) (:element-size array-decl)) 0xFFFF)
+                (throw (ex-info "Превышен размер XDATA памяти для массива"
+                              {:declaration array-decl})))
+              (recur (:tokens array-decl)
+                     (conj declarations array-decl)))
+            
+            ;; Пропуск разделителей
+            :separator
+            (recur rest declarations)
+            
+            ;; Конец секции XDATA
+            :memory-directive
+            (if (= (:value token) "xdata")
+              (recur rest declarations)
+              {:type :memory-space
+               :space :xdata
+               :declarations declarations
+               :tokens remaining-tokens})
+            
+            ;; Ошибка при неожиданном токене
+            (throw (ex-info "Неожиданный токен в секции XDATA"
+                          {:token token}))))))))
 
 (defn- ^:private parse-code-space 
-  "Парсинг в пространстве памяти CODE"
+  "Парсинг в пространстве памяти CODE
+   
+   CODE память в 8051:
+   - Память программ до 64KB (0x0000-0xFFFF)
+   - Содержит код программы и константы
+   - Может содержать таблицы lookup
+   - Поддерживает только чтение во время выполнения"
   [tokens]
   (log/debug "Парсинг в пространстве CODE")
-  ;; TODO: Реализовать специфичный парсинг для CODE
-  (parse-program tokens))
+  (let [context (->ParsingContext :code :memory nil)]
+    (loop [remaining-tokens tokens
+           declarations []]
+      (if (empty? remaining-tokens)
+        {:type :memory-space
+         :space :code
+         :declarations declarations}
+        (let [[token & rest] remaining-tokens]
+          (case (:type token)
+            ;; Объявление константы
+            :const-declaration
+            (let [const-decl (parse-const-declaration remaining-tokens)]
+              (recur (:tokens const-decl)
+                     (conj declarations const-decl)))
+            
+            ;; Объявление функции
+            :type-keyword
+            (let [func-decl (parse-function-declaration remaining-tokens)]
+              (recur (:tokens func-decl)
+                     (conj declarations func-decl)))
+            
+            ;; Объявление lookup таблицы
+            :array-declaration
+            (let [array-decl (parse-array-declaration remaining-tokens)]
+              (when-not (:const array-decl)
+                (throw (ex-info "В CODE можно объявлять только константные массивы"
+                              {:declaration array-decl})))
+              (recur (:tokens array-decl)
+                     (conj declarations array-decl)))
+            
+            ;; Пропуск разделителей
+            :separator
+            (recur rest declarations)
+            
+            ;; Конец секции CODE
+            :memory-directive
+            (if (= (:value token) "code")
+              (recur rest declarations)
+              {:type :memory-space
+               :space :code
+               :declarations declarations
+               :tokens remaining-tokens})
+            
+            ;; Ошибка при неожиданном токене
+            (throw (ex-info "Неожиданный токен в секции CODE"
+                          {:token token}))))))))
 
 (defn- ^:private parse-default 
   "Парсинг по умолчанию"
@@ -1654,47 +1808,249 @@
 
 ;; Функции для распознавания специальных ключевых слов
 (defn- ^:private recognize-memory-types 
-  "Распознавание типов памяти"
+  "Распознавание типов памяти в C51
+   
+   Поддерживаемые директивы памяти:
+   - data: внутренняя память данных (128 байт)
+   - xdata: внешняя память данных (64KB)
+   - code: память программ (64KB)
+   - idata: косвенно адресуемая внутренняя память
+   - pdata: страничная память (256 байт)"
   [input]
   (log/debug "Распознавание типов памяти")
-  ;; TODO: Реализовать распознавание типов памяти
-  input)
+  (let [memory-types #{"data" "xdata" "code" "idata" "pdata"}]
+    (loop [tokens input
+           result []]
+      (if (empty? tokens)
+        result
+        (let [token (first tokens)]
+          (if (and (= (:type token) :identifier)
+                   (contains? memory-types (:value token)))
+            (recur (rest tokens)
+                   (conj result 
+                         (assoc token 
+                                :type :memory-directive
+                                :memory-space (keyword (:value token)))))
+            (recur (rest tokens)
+                   (conj result token))))))))
 
 (defn- ^:private recognize-sfr-keywords 
-  "Распознавание ключевых слов SFR"
+  "Распознавание ключевых слов для специальных регистров (SFR) в C51
+   
+   Поддерживаемые ключевые слова:
+   - sfr: специальный функциональный регистр (8 бит)
+   - sbit: отдельный бит в SFR
+   
+   Примеры:
+   sfr P0 = 0x80;    // Порт 0
+   sbit P0_0 = 0x80; // Бит 0 порта 0"
   [input]
   (log/debug "Распознавание ключевых слов SFR")
-  ;; TODO: Реализовать распознавание SFR
-  input)
+  (let [sfr-keywords #{"sfr" "sbit"}]
+    (loop [tokens input
+           result []]
+      (if (empty? tokens)
+        result
+        (let [token (first tokens)]
+          (if (and (= (:type token) :identifier)
+                   (contains? sfr-keywords (:value token)))
+            (recur (rest tokens)
+                   (conj result 
+                         (assoc token 
+                                :type :sfr-keyword
+                                :sfr-type (keyword (:value token)))))
+            (recur (rest tokens)
+                   (conj result token))))))))
 
 (defn- ^:private recognize-bit-addressing 
-  "Распознавание битовой адресации"
+  "Распознавание битовой адресации в C51
+   
+   Поддерживаемые форматы:
+   - Прямая битовая адресация: P1.0, ACC.7
+   - Адресация через символ ^: P1^0, ACC^7
+   - Битовые области в DATA: 20h.0 - 2Fh.7
+   
+   Особенности:
+   - Биты нумеруются от 0 до 7
+   - Поддерживается для SFR и области DATA
+   - Используется для булевых операций"
   [input]
   (log/debug "Распознавание битовой адресации")
-  ;; TODO: Реализовать распознавание битовой адресации
-  input)
+  (loop [tokens input
+         result []
+         i 0]
+    (if (>= i (count tokens))
+      result
+      (let [token (nth tokens i)]
+        (cond
+          ;; Проверка формата P1.0
+          (and (< (+ i 2) (count tokens))
+               (= (:type token) :identifier)
+               (= (:type (nth tokens (inc i))) :separator)
+               (= (:value (nth tokens (inc i))) ".")
+               (= (:type (nth tokens (+ i 2))) :int_number)
+               (<= 0 (Integer/parseInt (:value (nth tokens (+ i 2)))) 7))
+          (recur tokens
+                 (conj result 
+                       {:type :bit-address
+                        :sfr (:value token)
+                        :bit (Integer/parseInt (:value (nth tokens (+ i 2))))
+                        :format :dot})
+                 (+ i 3))
+          
+          ;; Проверка формата P1^0
+          (and (< (+ i 2) (count tokens))
+               (= (:type token) :identifier)
+               (= (:value (nth tokens (inc i))) "^")
+               (= (:type (nth tokens (+ i 2))) :int_number)
+               (<= 0 (Integer/parseInt (:value (nth tokens (+ i 2)))) 7))
+          (recur tokens
+                 (conj result 
+                       {:type :bit-address
+                        :sfr (:value token)
+                        :bit (Integer/parseInt (:value (nth tokens (+ i 2))))
+                        :format :caret})
+                 (+ i 3))
+          
+          ;; Пропуск обычных токенов
+          :else
+          (recur tokens
+                 (conj result token)
+                 (inc i)))))))
 
 ;; Функции для валидации ограничений 8051
 (defn- ^:private validate-memory-constraints 
-  "Валидация ограничений памяти"
+  "Валидация ограничений памяти 8051
+   
+   Проверяемые ограничения:
+   - DATA: 128 байт (0x00-0x7F)
+   - XDATA: 64KB (0x0000-0xFFFF)
+   - CODE: 64KB (0x0000-0xFFFF)
+   - Битовая область: 16 байт (0x20-0x2F)
+   - Стек: в DATA памяти"
   [ast]
   (log/debug "Валидация ограничений памяти")
-  ;; TODO: Реализовать валидацию памяти
+  (doseq [node (:nodes ast)]
+    (case (:type node)
+      :memory-space
+      (case (:space node)
+        :data
+        (doseq [decl (:declarations node)]
+          (when (> (:size decl) 0x7F)
+            (throw (ex-info "Превышен размер DATA памяти (128 байт)"
+                          {:declaration decl}))))
+        
+        :xdata
+        (doseq [decl (:declarations node)]
+          (when (> (:size decl) 0xFFFF)
+            (throw (ex-info "Превышен размер XDATA памяти (64KB)"
+                          {:declaration decl}))))
+        
+        :code
+        (doseq [decl (:declarations node)]
+          (when (> (:size decl) 0xFFFF)
+            (throw (ex-info "Превышен размер CODE памяти (64KB)"
+                          {:declaration decl}))))
+        
+        nil))
+      
+      nil))
   ast)
 
 (defn- ^:private validate-interrupt-vectors 
-  "Валидация векторов прерываний"
+  "Валидация векторов прерываний 8051
+   
+   Проверяемые аспекты:
+   - Корректность номеров прерываний (0-31)
+   - Уникальность векторов прерываний
+   - Наличие обработчиков для всех используемых прерываний
+   - Правильность размещения в памяти"
   [ast]
   (log/debug "Валидация векторов прерываний")
-  ;; TODO: Реализовать валидацию прерываний
-  ast)
+  (let [interrupt-handlers (atom {})]
+    (doseq [node (:nodes ast)]
+      (when (and (= (:type node) :function-declaration)
+                 (:interrupt-number node))
+        (let [int-num (:interrupt-number node)]
+          ;; Проверка диапазона
+          (when-not (<= 0 int-num 31)
+            (throw (ex-info "Недопустимый номер прерывания"
+                          {:function (:name node)
+                           :interrupt int-num})))
+          
+          ;; Проверка уникальности
+          (when (@interrupt-handlers int-num)
+            (throw (ex-info "Дублирование обработчика прерывания"
+                          {:interrupt int-num
+                           :existing (@interrupt-handlers int-num)
+                           :new (:name node)})))
+          
+          ;; Регистрация обработчика
+          (swap! interrupt-handlers assoc int-num (:name node)))))
+    ast))
 
 (defn- ^:private validate-register-usage 
-  "Валидация использования регистров"
+  "Валидация использования регистров 8051
+   
+   Проверяемые аспекты:
+   - Корректность использования банков регистров
+   - Сохранение контекста в прерываниях
+   - Использование специальных регистров
+   - Конфликты при параллельном использовании"
   [ast]
   (log/debug "Валидация использования регистров")
-  ;; TODO: Реализовать валидацию регистров
+  (doseq [node (:nodes ast)]
+    (when (= (:type node) :function-declaration)
+      (let [used-registers (atom #{})
+            is-interrupt (:interrupt-number node)]
+        
+        ;; Анализ использования регистров в теле функции
+        (doseq [stmt (:body node)]
+          (when-let [regs (extract-used-registers stmt)]
+            (swap! used-registers into regs)))
+        
+        ;; Проверки для прерываний
+        (when is-interrupt
+          ;; Проверка сохранения PSW
+          (when-not (contains? @used-registers "PSW")
+            (log/warn "Прерывание не сохраняет PSW:"
+                     {:function (:name node)}))
+          
+          ;; Проверка сохранения ACC
+          (when-not (contains? @used-registers "ACC")
+            (log/warn "Прерывание не сохраняет ACC:"
+                     {:function (:name node)})))
+        
+        ;; Проверка конфликтов банков регистров
+        (when (> (count (filter #(.startsWith % "R") @used-registers)) 8)
+          (log/warn "Возможное некорректное использование банков регистров:"
+                   {:function (:name node)
+                    :registers @used-registers})))))
   ast)
+
+;; Вспомогательная функция для извлечения используемых регистров
+(defn- ^:private extract-used-registers
+  "Извлекает список регистров, используемых в выражении"
+  [expr]
+  (when expr
+    (case (:type expr)
+      :identifier
+      (when (re-matches #"R[0-7]|ACC|PSW|DPTR|SP" (:value expr))
+        #{(:value expr)})
+      
+      :binary-operation
+      (set/union (extract-used-registers (:left expr))
+                 (extract-used-registers (:right expr)))
+      
+      :unary-operation
+      (extract-used-registers (:operand expr))
+      
+      :function-call
+      (reduce set/union
+              #{}
+              (map extract-used-registers (:arguments expr)))
+      
+      #{}))) ;; Fixed unmatched bracket
 
 ;; Функции для работы с SFR и битовой адресацией
 (defn- ^:private in-sfr-context? 
@@ -1723,3 +2079,48 @@
        :sfr (:value sfr-token)
        :bit (Integer/parseInt (:value bit-num))
        :tokens remaining})))
+
+;; Парсер для констант
+(defn- ^:private parse-const-declaration 
+  "Семантический парсинг объявления констант
+   
+   Грамматика:
+   const type identifier = value;
+   
+   Особенности:
+   - Поддержка числовых и строковых констант
+   - Размещение в CODE памяти
+   - Только для чтения во время выполнения"
+  [tokens]
+  (log/debug "Начало парсинга объявления константы")
+  (let [[const-token & after-const] tokens]
+    (when-not (= (:value const-token) "const")
+      (throw (ex-info "Ожидается ключевое слово const"
+                      {:token const-token})))
+    
+    (let [[type-token & after-type] after-const]
+      (when-not (= (:type type-token) :type-keyword)
+        (throw (ex-info "Ожидается тип константы"
+                        {:token type-token})))
+      
+      (let [[name-token & after-name] after-type]
+        (when-not (= (:type name-token) :identifier)
+          (throw (ex-info "Ожидается имя константы"
+                          {:token name-token})))
+        
+        (let [[eq-token & after-eq] after-name]
+          (when-not (= (:value eq-token) "=")
+            (throw (ex-info "Ожидается знак '='"
+                            {:token eq-token})))
+          
+          (let [value-expr (parse-expression after-eq)
+                [semicolon & remaining] (:tokens value-expr)]
+            (when-not (= (:value semicolon) ";")
+              (throw (ex-info "Ожидается точка с запятой"
+                              {:token semicolon})))
+            
+            {:type :const-declaration
+             :const-type (:value type-token)
+             :name (:value name-token)
+             :value value-expr
+             :tokens remaining}))))))

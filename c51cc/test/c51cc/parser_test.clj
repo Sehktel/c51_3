@@ -175,6 +175,7 @@
 (deftest test-parse-for-loop
   (testing "Корректный цикл for с простой инициализацией"
     (log/debug "Начало теста: Корректный цикл for")
+    (log/set-debug-level! :TRACE)
     (let [tokens (create-tokens
                   [:keyword "for"]
                   [:separator "("]
@@ -193,12 +194,17 @@
                   [:separator "{"]
                   [:separator "}"])
           result (parser/parse-for-loop  tokens)]
-      (log/debug "Результат парсинга for-цикла:" result)
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :for-loop))
-      (is (map? (:initialization result)))
-      (is (map? (:condition result)))
-      (is (map? (:increment result)))
+      (log/trace "type result :control-flow:")
+        (is (= (:type result) :control-flow))
+      (log/trace "subtype result :for-loop:")
+        (is (= (:subtype result) :for-loop))
+      (log/trace "initialization result :map?")
+        (is (map? (:initialization result)))
+      (log/trace "condition result :map?")
+        (is (map? (:condition result)))
+      (log/trace "increment result :map?")
+        (is (map? (:increment result)))
+      (log/set-debug-level! :DEBUG)  
       (log/debug "Тест завершен успешно"))))
 
 ;; Тесты для парсинга циклов while
