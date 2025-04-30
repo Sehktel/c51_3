@@ -14,6 +14,9 @@
             [c51cc.preprocessor :as preprocessor]
             [clojure.java.io :as io]))
 
+;; Добавляем динамическую переменную для управления выводом токенов
+(def ^:dynamic *debug-tokens* false)
+
 (def node-types
   "Типы узлов абстрактного синтаксического дерева (AST)"
   {:program :program
@@ -61,6 +64,20 @@
      (println "==================\n")
      ast)))
 
+(defn- remove-tokens
+  "Рекурсивно удаляет токены из структуры AST
+   
+   Теоретическая сложность: O(n), где n - общее количество узлов"
+  [node]
+  (cond
+    (map? node) (let [node-without-tokens (dissoc node :tokens)]
+                  (reduce-kv (fn [m k v]
+                             (assoc m k (remove-tokens v)))
+                           {}
+                           node-without-tokens))
+    (sequential? node) (mapv remove-tokens node)
+    :else node))
+
 (defn pretty-print-ast
   "Расширенная визуализация AST с глубоким форматированием и анализом
 
@@ -68,6 +85,7 @@
    - Многоуровневая визуализация структуры
    - Ограничение глубины для читаемости
    - Семантическая аннотация узлов
+   - Условный вывод токенов на основе *debug-tokens*
 
    Сложность: O(n), где n - количество узлов в AST"
   [ast]
@@ -93,7 +111,18 @@
                                (update :body 
                                        (fn [body] 
                                          (take 100 body))))))
-                         (take 100 nodes))))]
-       {:type (:type processed-ast)
+                         (take 100 nodes))))
+           final-ast (if *debug-tokens*
+                      processed-ast
+                      (remove-tokens processed-ast))]
+       {:type (:type final-ast)
         :total-nodes (count (:nodes ast))
-        :nodes (:nodes processed-ast)}))))
+        :nodes (:nodes final-ast)}))))
+
+(defn set-debug-tokens!
+  "Устанавливает режим отображения токенов в AST
+   
+   Параметры:
+   debug? - булево значение, true для отображения токенов"
+  [debug?]
+  (alter-var-root #'*debug-tokens* (constantly debug?)))
