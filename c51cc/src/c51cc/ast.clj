@@ -8,8 +8,11 @@
   (:require 
             [c51cc.logger :as log]
             [clojure.pprint :as pprint]
-            [clojure.stacktrace :as stacktrace])
-  (:import (java.io File)))
+            [clojure.stacktrace :as stacktrace]
+            [clojure.string :as str]
+            [c51cc.lexer :as lexer]
+            [c51cc.preprocessor :as preprocessor]
+            [clojure.java.io :as io]))
 
 (def node-types
   "Типы узлов абстрактного синтаксического дерева (AST)"
@@ -20,17 +23,43 @@
    :control-flow :control-flow
    :expression :expression})
 
-;; (defn generate-ast
-  ;; "Генерация абстрактного синтаксического дерева с расширенной обработкой"
-  ;; [code base-path]
-  ;; (log/info "Начало генерации AST")
-  ;; (let [preprocessed-code (preprocessor/preprocess code :base-path base-path)
-  ;;       tokens (lexer/tokenize preprocessed-code)
-  ;;       ast (parser/parse tokens)]
-  ;;   (log/debug "AST успешно сгенерирован")
-  ;;   (println "Токены:" tokens)
-  ;;   (println "AST:" (with-out-str (clojure.pprint/pprint ast)))
-  ;;   ast))
+(declare pretty-print-ast)
+
+(defn process-file-to-ast
+  "Обрабатывает файл и возвращает AST"
+  [file-path]
+  (when (and file-path (str/ends-with? file-path ".c"))
+    (let [file (io/file file-path)]
+      (if (and (.exists file) (.isFile file))
+        (try
+          (let [file-content (slurp file)
+                base-path (.getParent file)
+                preprocessed-code (preprocessor/preprocess file-content :base-path base-path)
+                tokens (lexer/tokenize preprocessed-code)
+                parser-ns (requiring-resolve 'c51cc.parser/parse)
+                ast (parser-ns tokens)]
+            ast)
+          (catch Exception e
+            (println "\nОшибка при обработке файла:" file-path)
+            (println "Сообщение:" (.getMessage e))
+            (stacktrace/print-stack-trace e)
+            nil))
+        (do
+          (println "\nФайл не существует или не является .c файлом:" file-path)
+          nil)))))
+
+(defn view-ast-from-file
+  "Отображает AST дерево для указанного файла.
+   Использует переменную окружения TEST_FILE если путь не указан."
+  ([]
+   (view-ast-from-file (System/getenv "TEST_FILE")))
+  ([file-path]
+   (when-let [ast (process-file-to-ast file-path)]
+     (println "\nПолученное AST дерево:")
+     (println "==================")
+     (println (pretty-print-ast ast))
+     (println "==================\n")
+     ast)))
 
 (defn pretty-print-ast
   "Расширенная визуализация AST с глубоким форматированием и анализом
