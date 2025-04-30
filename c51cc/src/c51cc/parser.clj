@@ -55,6 +55,8 @@
    По умолчанию установлен уровень INFO."
   :INFO)
 
+(def ^:dynamic *max-iterations* 10000)
+
 ;; Типы узлов абстрактного синтаксического дерева (AST)
 (def ast-node-types
   "Типы узлов абстрактного синтаксического дерева (AST)"
@@ -189,7 +191,7 @@
         (throw (ex-info "Ожидается открывающая фигурная скобка" 
                         {:tokens tokens-after-params})))
       
-      (let [body-result (internal-parse-function-body after-brace)
+      (let [body-result (internal-parse-function-body after-brace 1)
             base-result {:type (:function-declaration ast-node-types)
                          :return-type {:type :type-keyword
                                        :value (:value type-token)}
@@ -305,154 +307,63 @@
      :right (parse-expression (list right-token))
      :tokens after-right}))
 
-(defn- ^:private internal-parse-function-body 
-  "Парсинг тела функции с расширенной диагностикой"
-  [tokens]
-  (log/debug "Начало парсинга тела функции")
-  (log/trace "Входящие токены:" (pr-str tokens))
-  
-  (try 
-    (loop [remaining tokens
-           depth 1
-           body-tokens []]
-      (let [[current-token & rest] remaining]
-        (cond 
-          ;; Нет токенов - незавершенное тело функции
-          (nil? current-token) 
-          (if (> depth 1)
-            (throw (ex-info "Незавершенное тело функции" 
-                            {:tokens tokens
-                             :depth depth
-                             :body-tokens body-tokens}))
-            {:body body-tokens 
-             :tokens rest})
-          
-          ;; Открывающая фигурная скобка - увеличение глубины
-          (= (:value current-token) "{") 
-          (recur rest (inc depth) (conj body-tokens current-token))
-          
-          ;; Закрывающая фигурная скобка - уменьшение глубины
-          (= (:value current-token) "}") 
-          (let [new-depth (dec depth)]
-            (if (zero? new-depth)
-              {:body body-tokens 
-               :tokens rest}
-              (recur rest new-depth (conj body-tokens current-token))))
-          
-          ;; Объявление переменной
-          (= (:type current-token) :type-keyword)
-          (let [var-decl (parse-variable-declaration (cons current-token rest))]
-            (recur (:tokens var-decl) depth 
-                   (conj body-tokens var-decl)))
-          
-          ;; Выражение или присваивание
-          (or (= (:type current-token) :identifier)
-              (= (:type current-token) :int_number))
-          (let [expr (parse-expression (cons current-token rest))]
-            (recur (:tokens expr) depth 
-                   (conj body-tokens expr)))
-          
-          ;; Пропускаем разделители
-          (= (:value current-token) ";")
-          (recur rest depth body-tokens)
-          
-          ;; Цикл for
-          (= (:value current-token) "for")
-          (let [for-loop (parse-for-loop (cons current-token rest))]
-            (recur (:tokens for-loop) depth 
-                   (conj body-tokens for-loop)))
-          
-          ;; Цикл while
-          (= (:value current-token) "while")
-          (let [while-loop (parse-while-loop (cons current-token rest))]
-            (recur (:tokens while-loop) depth 
-                   (conj body-tokens while-loop)))
-          
-          ;; Вызов функции
-          (and (= (:type current-token) :identifier)
-               (= (:value (first rest)) "("))
-          (let [func-call (parse-function-call (cons current-token rest))]
-            (recur (:tokens func-call) depth 
-                   (conj body-tokens func-call)))
-          
-          ;; Конструкция switch-case
-          (= (:value current-token) "switch")
-          (let [switch-case (parse-switch-case (cons current-token rest))]
-            (recur (:tokens switch-case) depth 
-                   (conj body-tokens switch-case)))
-          
-          ;; Цикл do-while
-          (= (:value current-token) "do")
-          (let [do-while-loop (parse-do-while (cons current-token rest))]
-            (recur (:tokens do-while-loop) depth 
-                   (conj body-tokens do-while-loop)))
-          
-          ;; Конструкция if-else
-          (= (:value current-token) "if")
-          (let [if-else-block (parse-if-else (cons current-token rest))]
-            (recur (:tokens if-else-block) depth 
-                   (conj body-tokens if-else-block)))
-          
-          ;; Оператор break
-          (= (:value current-token) "break")
-          (let [break-stmt (parse-break-continue (cons current-token rest))]
-            (recur (:tokens break-stmt) depth 
-                   (conj body-tokens break-stmt)))
-          
-          ;; Оператор continue
-          (= (:value current-token) "continue")
-          (let [continue-stmt (parse-break-continue (cons current-token rest))]
-            (recur (:tokens continue-stmt) depth 
-                   (conj body-tokens continue-stmt)))
-          
-          ;; Оператор return
-          (= (:value current-token) "return")
-          (let [return-stmt (parse-return (cons current-token rest))]
-            (recur (:tokens return-stmt) depth 
-                   (conj body-tokens return-stmt)))
-          
-          ;; Объявление указателя
-          (and (= (:type current-token) :type-keyword)
-               (= (:value (first rest)) "*"))
-          (let [pointer-decl (parse-pointer-declaration (cons current-token rest))]
-            (recur (:tokens pointer-decl) depth 
-                   (conj body-tokens pointer-decl)))
-          
-          ;; Объявление массива
-          (and (= (:type current-token) :type-keyword)
-               (= (:type (first rest)) :identifier)
-               (= (:value (second rest)) "["))
-          (let [array-decl (parse-array-declaration (cons current-token rest))]
-            (recur (:tokens array-decl) depth 
-                   (conj body-tokens array-decl)))
-          
-          ;; Объявление структуры
-          (= (:value current-token) "struct")
-          (let [struct-decl (parse-struct-declaration (cons current-token rest))]
-            (recur (:tokens struct-decl) depth 
-                   (conj body-tokens struct-decl)))
-          
-          ;; Объявление typedef
-          (= (:value current-token) "typedef")
-          (let [typedef-decl (parse-typedef (cons current-token rest))]
-            (recur (:tokens typedef-decl) depth 
-                   (conj body-tokens typedef-decl)))
-          
-          :else 
-          (recur rest depth (conj body-tokens current-token)))))
+(defn internal-parse-function-body
+  "Парсит тело функции, собирая все токены до закрывающей фигурной скобки"
+  [tokens depth]
+  (log/debug "Начало парсинга тела функции. Глубина:" depth)
+  (loop [remaining tokens
+         body-tokens []
+         brace-count 1
+         iterations 0]
+    (when (> iterations *max-iterations*)
+      (throw (ex-info "Возможный бесконечный цикл при парсинге тела функции"
+                     {:depth depth
+                      :brace-count brace-count
+                      :iterations iterations
+                      :remaining-count (count remaining)})))
     
-    (catch Exception e
-      (log/error "Критическая ошибка при парсинге тела функции")
-      (log/error "Детали исключения:" (str e))
-      (log/error "Трассировка стека:" 
-        (with-out-str (stacktrace/print-stack-trace e)))
-      (when-let [data (ex-data e)]
-        (log/error "Дополнительные данные:" (pr-str data)))
-      (throw 
-       (ex-info 
-        "Ошибка при парсинге тела функции" 
-        {:original-exception e
-         :tokens tokens})))))
+    (if (empty? remaining)
+      (do
+        (log/error "Неожиданный конец токенов при парсинге тела функции")
+        (throw (ex-info "Неожиданный конец токенов"
+                       {:depth depth
+                        :brace-count brace-count
+                        :collected-tokens body-tokens})))
+      
+      (let [token (first remaining)
+            token-type (:type token)]
+        (log/trace "Обработка токена:" token "на итерации" iterations)
+        
+        (cond
+          ;; Увеличиваем счетчик при открывающей скобке
+          (and (= token-type :separator)
+               (= (:value token) "{"))
+          (recur (rest remaining)
+                 (conj body-tokens token)
+                 (inc brace-count)
+                 (inc iterations))
+          
+          ;; Уменьшаем счетчик при закрывающей скобке
+          (and (= token-type :separator)
+               (= (:value token) "}"))
+          (if (= brace-count 1)
+            ;; Нашли закрывающую скобку на нужном уровне
+            (do
+              (log/debug "Завершение парсинга тела функции. Собрано токенов:" (count body-tokens))
+              {:remaining (rest remaining)
+               :body-tokens body-tokens})
+            ;; Продолжаем поиск
+            (recur (rest remaining)
+                   (conj body-tokens token)
+                   (dec brace-count)
+                   (inc iterations)))
+          
+          ;; Собираем все остальные токены
+          :else
+          (recur (rest remaining)
+                 (conj body-tokens token)
+                 brace-count
+                 (inc iterations)))))))
 
 ;; Реализации парсера
 (defn parse-program
@@ -461,14 +372,28 @@
    (parse-program tokens nil))
   ([tokens context]
    (log/debug "Начало семантического парсинга программы")
-   (loop [remaining-tokens tokens
-          parsed-nodes []]
-     (if (empty? remaining-tokens)
+   (if (empty? tokens)
+     (do
+       (log/debug "Пустой список токенов")
        {:type (:program ast-node-types)
-        :nodes parsed-nodes}
-       (let [result (parse-function-declaration remaining-tokens)
-             node (dissoc result :tokens)]
-         (recur (:tokens result) (conj parsed-nodes node)))))))
+        :nodes []})
+     (loop [remaining-tokens tokens
+            parsed-nodes []]
+       (if (empty? remaining-tokens)
+         (do
+           (log/debug "Парсинг программы завершен. Узлов: " (count parsed-nodes))
+           {:type (:program ast-node-types)
+            :nodes parsed-nodes})
+         (let [_ (log/trace "Парсинг следующего узла. Оставшиеся токены: " (pr-str (take 5 remaining-tokens)))
+               result (try
+                       (parse-function-declaration remaining-tokens)
+                       (catch Exception e
+                         (log/error "Ошибка при парсинге функции: " (str e))
+                         (throw (ex-info "Ошибка парсинга программы" 
+                                       {:tokens remaining-tokens
+                                        :cause e}))))
+               node (dissoc result :tokens)]
+           (recur (:tokens result) (conj parsed-nodes node))))))))
 
 ;; Добавление парсера для циклов for
 (defn parse-for-loop 
@@ -512,7 +437,7 @@
           
           ;; Парсинг тела цикла
           [open-brace & after-open-brace] after-close
-          body-result (internal-parse-function-body after-open-brace)]
+          body-result (internal-parse-function-body after-open-brace 1)]
       
       (when-not (and (= (:value semicolon1) ";")
                      (= (:value semicolon2) ";")
@@ -569,7 +494,7 @@
           
           ;; Парсинг тела цикла
           [open-brace & after-open-brace] after-condition
-          body-result (internal-parse-function-body after-open-brace)]
+          body-result (internal-parse-function-body after-open-brace 1)]
       
       (when-not (and (= (:value close-paren) ")")
                      (= (:value open-brace) "{"))
@@ -720,58 +645,74 @@
                         {:tokens tokens})))
       
       ;; Парсинг case-блоков и default
-      (loop [remaining (rest after-open-brace)
-             depth 1
+      (loop [remaining after-open-brace
              cases []
-             default-case nil]
+             default-case nil
+             iterations 0]
+        (when (> iterations *max-iterations*)
+          (throw (ex-info "Возможный бесконечный цикл при парсинге switch-case"
+                         {:iterations iterations
+                          :remaining-count (count remaining)})))
+        
         (let [[current-token & rest] remaining]
           (cond
             ;; Конец switch-блока
-            (and (= (:value current-token) "}")
-                 (= depth 1))
-            {:type (:control-flow ast-node-types)
-             :subtype :switch-case
-             :switch-expression switch-expr
-             :cases cases
-             :default-case default-case
-             :tokens (cons current-token rest)}
-            
-            ;; Открытие вложенного блока
-            (= (:value current-token) "{")
-            (recur rest (inc depth) cases default-case)
-            
-            ;; Закрытие вложенного блока
             (= (:value current-token) "}")
-            (recur rest (dec depth) cases default-case)
+            (do
+              (log/debug "Завершение парсинга switch-case")
+              {:type (:control-flow ast-node-types)
+               :subtype :switch-case
+               :switch-expression switch-expr
+               :cases cases
+               :default-case default-case
+               :tokens rest})
             
             ;; Парсинг case-блока
             (= (:value current-token) "case")
             (let [[const-token & after-const] rest
                   case-const {:type (:expression ast-node-types)
                              :value (:value const-token)}
-                  [colon & after-colon] after-const
-                  
-                  ;; Парсинг тела case
-                  case-body (internal-parse-function-body after-colon)]
+                  [colon & after-colon] after-const]
               (when-not (= (:value colon) ":")
                 (log/error "Ожидается ':' после константы case")
                 (throw (ex-info "Некорректный синтаксис case"
                                 {:tokens tokens})))
               
-              (recur (:tokens case-body) 
-                     depth 
-                     (conj cases 
-                           {:type :case-block
-                            :constant case-const
-                            :body (:body case-body)})
-                     default-case))
+              (let [case-body-result (loop [curr after-colon
+                                          body-tokens []
+                                          depth 0]
+                                     (let [[token & next] curr]
+                                       (cond
+                                         (nil? token)
+                                         (throw (ex-info "Неожиданный конец case-блока"
+                                                       {:case-const case-const}))
+                                         
+                                         (= (:value token) "case")
+                                         {:body body-tokens
+                                          :remaining curr}
+                                         
+                                         (= (:value token) "default")
+                                         {:body body-tokens
+                                          :remaining curr}
+                                         
+                                         (= (:value token) "}")
+                                         {:body body-tokens
+                                          :remaining curr}
+                                         
+                                         :else
+                                         (recur next
+                                                (conj body-tokens token)
+                                                depth))))]
+                (recur (:remaining case-body-result)
+                       (conj cases {:type :case-block
+                                  :constant case-const
+                                  :body (:body case-body-result)})
+                       default-case
+                       (inc iterations))))
             
             ;; Парсинг default-блока
             (= (:value current-token) "default")
-            (let [[colon & after-colon] rest
-                  
-                  ;; Парсинг тела default
-                  default-body (internal-parse-function-body after-colon)]
+            (let [[colon & after-colon] rest]
               (when-not (= (:value colon) ":")
                 (log/error "Ожидается ':' после default")
                 (throw (ex-info "Некорректный синтаксис default"
@@ -782,15 +723,31 @@
                 (throw (ex-info "Множественные default-блоки"
                                 {:tokens tokens})))
               
-              (recur (:tokens default-body) 
-                     depth 
-                     cases 
-                     {:type :default-block
-                      :body (:body default-body)}))
+              (let [default-body-result (loop [curr after-colon
+                                             body-tokens []
+                                             depth 0]
+                                        (let [[token & next] curr]
+                                          (cond
+                                            (nil? token)
+                                            (throw (ex-info "Неожиданный конец default-блока" {}))
+                                            
+                                            (= (:value token) "}")
+                                            {:body body-tokens
+                                             :remaining curr}
+                                            
+                                            :else
+                                            (recur next
+                                                   (conj body-tokens token)
+                                                   depth))))]
+                (recur (:remaining default-body-result)
+                       cases
+                       {:type :default-block
+                        :body (:body default-body-result)}
+                       (inc iterations))))
             
-            ;; Пропуск других токенов
+            ;; Пропуск других токенов (например, пробелы, комментарии)
             :else
-            (recur rest depth cases default-case)))))))
+            (recur rest cases default-case (inc iterations))))))))
 
 ;; Определение приоритетов операторов
 (def ^:private operator-precedence
@@ -1106,7 +1063,7 @@
           
           ;; Парсинг блока true
           [true-open-brace & after-true-open] after-condition
-          true-body (internal-parse-function-body after-true-open)]
+          true-body (internal-parse-function-body after-true-open 1)]
       
       (when-not (= (:value close-paren) ")")
         (log/error "Некорректный синтаксис if")
@@ -1118,7 +1075,7 @@
         (if (and else-or-next-token 
                  (= (:value else-or-next-token) "else"))
           (let [[else-open-brace & after-else-open] rest-tokens
-                false-body (internal-parse-function-body after-else-open)]
+                false-body (internal-parse-function-body after-else-open 1)]
             {:type (:control-flow ast-node-types)
              :subtype :if-else
              :condition condition-expr
@@ -1162,7 +1119,7 @@
     (log/debug "Распознано ключевое слово do")
     
     ;; Парсинг тела цикла
-    (let [body-result (internal-parse-function-body after-open)
+    (let [body-result (internal-parse-function-body after-open 1)
           [while-token & after-while] (:tokens body-result)
           [open-paren & after-open] after-while]
       

@@ -5,6 +5,12 @@
             [c51cc.parser :as parser]
             [c51cc.lexer :as lexer]))
 
+(defn fixture-setup [f]
+  (log/set-debug-level! :DEBUG)
+  (f))
+
+(use-fixtures :each fixture-setup)
+
 ;; Вспомогательная функция для создания токенов с логированием
 (defn create-tokens
   "Создание списка токенов для тестирования с отладочным логированием"
@@ -18,21 +24,35 @@
 
 ;; Тесты для парсинга программы
 (deftest test-parse-program
-  (log/set-debug-level! :DEBUG)
-  (testing "Парсинг простой программы с пустой функцией"
-    (log/debug "Начало теста: Парсинг простой программы")
-    (let [tokens (create-tokens
-                  [:type-keyword "int"]
-                  [:identifier "main"]
-                  [:separator "("]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:separator "}"])
+  (testing "Парсинг пустой программы"
+    (let [tokens []
           result (parser/parse-program tokens)]
-      (log/debug "Результат парсинга:" result)
       (is (= (:type result) :program))
-      (is (= (count (:nodes result)) 1))
-      (log/debug "Тест завершен успешно"))))
+      (is (empty? (:nodes result)))))
+
+  (testing "Парсинг простой программы с пустой функцией"
+    (try
+      (let [tokens (create-tokens
+                    [:type-keyword "void"]
+                    [:identifier "main"]
+                    [:separator "("]
+                    [:separator ")"]
+                    [:separator "{"]
+                    [:separator "}"])
+            _ (log/debug "Созданы токены для теста")
+            result (do
+                    (log/debug "Начало парсинга программы")
+                    (let [r (parser/parse-program tokens)]
+                      (log/debug "Парсинг завершен")
+                      r))]
+        (is (= (:type result) :program))
+        (is (= (count (:nodes result)) 1))
+        (let [main-func (first (:nodes result))]
+          (is (= (:type main-func) :function-declaration))
+          (is (= (get-in main-func [:name :value]) "main"))))
+      (catch Exception e
+        (log/error "Ошибка в тесте:" (str e))
+        (throw e)))))
 
 ;; Тесты для парсинга функций
 (deftest test-parse-function-declaration
@@ -232,28 +252,27 @@
       (log/debug "Тест завершен успешно"))))
 
 ;; Тесты для парсинга do-while
-;; (deftest test-parse-do-while
-;;   (testing "Корректный цикл do-while"
-;;     (log/debug "Начало теста: Корректный do-while")
-;;     (let [tokens (create-tokens
-;;                   [:keyword "do"]
-;;                   [:separator "{"]
-;;                   [:separator "}"]
-;;                   [:keyword "while"]
-;;                   [:separator "("]
-;;                   [:identifier "x"]
-;;                   [:operator ">"]
-;;                   [:int_number "0"]
-;;                   [:separator ")"]
-;;                   [:separator ";"])
-;;           parser (parser/create-parser tokens)
-;;           result (parser/parse-do-while parser tokens)]
-;;       (log/debug "Результат парсинга do-while:" result)
-;;       (is (= (:type result) :control-flow))
-;;       (is (= (:subtype result) :do-while))
-;;       (is (map? (:condition result)))
-;;       (log/debug "Тест завершен успешно")))
-;;      )
+(deftest test-parse-do-while
+  (testing "Корректный цикл do-while"
+    (log/debug "Начало теста: Корректный do-while")
+    (let [tokens (create-tokens
+                  [:keyword "do"]
+                  [:separator "{"]
+                  [:separator "}"]
+                  [:keyword "while"]
+                  [:separator "("]
+                  [:identifier "x"]
+                  [:operator ">"]
+                  [:int_number "0"]
+                  [:separator ")"]
+                  [:separator ";"])
+          result (parser/parse-do-while tokens)]
+      (log/debug "Результат парсинга do-while:" result)
+      (is (= (:type result) :control-flow))
+      (is (= (:subtype result) :do-while))
+      (is (map? (:condition result)))
+      (log/debug "Тест завершен успешно")))
+     )
 
 ;; Тесты для парсинга if-else
 (deftest test-parse-if-else
