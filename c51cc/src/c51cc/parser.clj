@@ -60,6 +60,7 @@
         parse-type-keyword
         parse-variable-declaration
         extract-used-registers
+        parse-numeric-literal
         )
 
 (def ^:dynamic *current-debug-level* 
@@ -1181,7 +1182,7 @@
 
 ;; Парсер для if-else
 (defn parse-if-else 
-  "Семантический парсинг конструкции if-else
+  "Семантический парсинг конструкции if-else с использованием токенов лексера
 
   Грамматика if-else:
   if (condition) {
@@ -1191,56 +1192,91 @@
   }
 
   Ключевые аспекты парсинга:
-  - Распознавание условия
-  - Парсинг блоков true и false
-  - Поддержка вложенных блоков"
+  - Строгая проверка типов токенов из лексера
+  - Корректная обработка условий
+  - Поддержка вложенных блоков
+  - Улучшенная диагностика ошибок"
   [tokens]
   (log/debug "Начало парсинга конструкции if-else")
-  (log/trace "Входящие токены if-else: " (pr-str (take 10 tokens)))
+  (log/trace "Входящие токены if-else: " (pr-str (take 15 tokens)))
 
   (let [[if-token & after-if] tokens
         [open-paren & after-open] after-if]
     
-    (when-not (and (= (:value if-token) "if")
+    ;; Проверка корректности начальных токенов
+    (when-not (and (= (:type if-token) :keyword)
+                   (= (:value if-token) "if")
+                   (= (:type open-paren) :separator)
                    (= (:value open-paren) "("))
       (log/error "Некорректное начало конструкции if-else. Токены: " (pr-str tokens))
       (throw (ex-info "Некорректное объявление if-else" 
-                      {:tokens tokens})))
+                      {:expected {:if {:type :keyword :value "if"}
+                                 :paren {:type :separator :value "("}}
+                       :received {:if if-token :paren open-paren}})))
     
     (log/debug "Распознано ключевое слово if")
     
-    ;; Парсинг условия
-    (let [condition-expr (parse-expression (rest after-open))
-          [close-paren & after-condition] (:tokens condition-expr)
-          
-          ;; Парсинг блока true
-          [true-open-brace & after-true-open] after-condition
-          true-body (internal-parse-function-body after-true-open 1)]
+    ;; Собираем токены для условия до закрывающей скобки
+    (let [condition-tokens (take-while #(not= (:value %) ")") after-open)
+          remaining-after-condition (drop (count condition-tokens) after-open)
+          [close-paren & after-close] remaining-after-condition]
       
-      (when-not (= (:value close-paren) ")")
-        (log/error "Некорректный синтаксис if")
-        (throw (ex-info "Ошибка в синтаксисе if"
-                        {:tokens tokens})))
+      ;; Проверяем наличие закрывающей скобки
+      (when-not (and close-paren 
+                     (= (:type close-paren) :separator)
+                     (= (:value close-paren) ")"))
+        (log/error "Ожидается закрывающая скобка после условия")
+        (throw (ex-info "Отсутствует закрывающая скобка"
+                       {:expected {:type :separator :value ")"}
+                        :received close-paren})))
       
-      ;; Проверка наличия else
-      (let [[else-or-next-token & rest-tokens] (:tokens true-body)]
-        (if (and else-or-next-token 
-                 (= (:value else-or-next-token) "else"))
-          (let [[else-open-brace & after-else-open] rest-tokens
-                false-body (internal-parse-function-body after-else-open 1)]
+      ;; Парсим условие
+      (let [condition-expr (parse-expression condition-tokens)
+            
+            ;; Проверка открывающей фигурной скобки
+            [true-open-brace & after-true-open] after-close
+            _ (when-not (and (= (:type true-open-brace) :separator)
+                            (= (:value true-open-brace) "{"))
+                (log/error "Ожидается открывающая фигурная скобка")
+                (throw (ex-info "Отсутствует открывающая фигурная скобка"
+                              {:expected {:type :separator :value "{"}
+                               :received true-open-brace})))
+            
+            ;; Парсинг блока true
+            true-body (internal-parse-function-body after-true-open 1)]
+        
+        ;; Проверка наличия else
+        (let [[else-or-next-token & rest-tokens] (:tokens true-body)]
+          (if (and else-or-next-token 
+                   (= (:type else-or-next-token) :keyword)
+                   (= (:value else-or-next-token) "else"))
+            ;; Обработка блока else
+            (let [[else-open-brace & after-else-open] rest-tokens
+                  ;; Проверка открывающей фигурной скобки else
+                  _ (when-not (and (= (:type else-open-brace) :separator)
+                                  (= (:value else-open-brace) "{"))
+                      (log/error "Ожидается открывающая фигурная скобка после else")
+                      (throw (ex-info "Отсутствует открывающая фигурная скобка после else"
+                                    {:expected {:type :separator :value "{"}
+                                     :received else-open-brace})))
+                  
+                  ;; Парсинг блока false
+                  false-body (internal-parse-function-body after-else-open 1)]
+              
+              ;; Возвращаем полную структуру if-else
+              {:type (:control-flow ast-node-types)
+               :subtype :if-else
+               :condition condition-expr
+               :true-block (:body true-body)
+               :false-block (:body false-body)
+               :tokens (:tokens false-body)})
+            
+            ;; Простой if без else
             {:type (:control-flow ast-node-types)
-             :subtype :if-else
+             :subtype :if
              :condition condition-expr
              :true-block (:body true-body)
-             :false-block (:body false-body)
-             :tokens (:tokens false-body)})
-          
-          ;; Простой if без else
-          {:type (:control-flow ast-node-types)
-           :subtype :if
-           :condition condition-expr
-           :true-block (:body true-body)
-           :tokens (:tokens true-body)})))))
+             :tokens (:tokens true-body)}))))))
 
 ;; Парсер для do-while
 (defn parse-do-while 
@@ -1438,131 +1474,146 @@
 
 ;; Парсер для массивов
 (defn parse-array-declaration 
-  "Семантический парсинг объявления массивов
+  "Семантический парсинг объявления массивов с улучшенной обработкой токенов лексера
 
   Грамматика:
   type identifier[size];
   type identifier[size] = {init_values};
 
   Ключевые аспекты парсинга:
-  - Распознавание типа массива
-  - Поддержка размера и инициализации
-  - Проверка синтаксиса"
+  - Точное распознавание токенов лексера
+  - Строгая типизация
+  - Расширенная диагностика ошибок"
   [tokens]
-  (log/debug "Начало парсинга объявления массива")
-  (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
+  (log/debug "Начало семантического парсинга объявления массива")
+  (log/trace "Входящие токены массива: " (pr-str (take 15 tokens)))
 
-  (let [[type-token & rest] tokens]
-    (when-not (= (:type type-token) :type-keyword)
-      (log/error "Некорректный тип массива. Токены: " (pr-str tokens))
-      (throw (ex-info "Некорректный тип массива" 
-                      {:tokens tokens})))
+  ;; Проверка наличия токенов и их типов
+  (let [;; Обработка составных типов (например, unsigned char)
+        [type-tokens remaining] (split-with #(= (:type %) :type-keyword) tokens)
+        full-type (apply str (interpose " " (map :value type-tokens)))
+        
+        ;; Найти первый идентификатор после типов
+        name-token (first (filter #(= (:type %) :identifier) remaining))
+        
+        ;; Найти токены после имени
+        after-name (drop-while #(not= (:type %) :identifier) remaining)]
     
-    (let [[name-token & after-name] rest]
-      (when-not (= (:type name-token) :identifier)
-        (log/error "Некорректное имя массива")
-        (throw (ex-info "Некорректное имя массива"
+    (when-not (and (seq type-tokens)
+                   name-token)
+      
+      (throw (ex-info "Ошибка в синтаксисе объявления массива"
+                      {:tokens tokens
+                       :expected {:type-token {:type :type-keyword}
+                                  :name-token {:type :identifier}}
+                       :received {:type-tokens type-tokens
+                                  :name-token name-token}})))
+    
+    ;; Парсинг размера массива и открывающей скобки
+    (let [open-bracket (first (filter #(= (:value %) "[") after-name))
+          size-tokens (drop-while #(not= (:value %) "[") after-name)]
+      (when-not open-bracket
+        (log/error "Ожидается '[' после имени массива")
+        (throw (ex-info "Отсутствует '[' для объявления массива"
                         {:tokens tokens})))
       
-      (let [[open-bracket & after-open] after-name]
-        (when-not (= (:value open-bracket) "[")
-          (log/error "Ожидается '[' для объявления массива")
-          (throw (ex-info "Отсутствует '[' для массива"
+      ;; Парсинг размера массива
+      (let [size-result (parse-expression (rest size-tokens))
+            [close-bracket & after-close] (:tokens size-result)
+            next-token (first after-close)]
+        (when-not (= (:value close-bracket) "]")
+          (log/error "Ожидается ']' после размера массива")
+          (throw (ex-info "Отсутствует закрывающая скобка размера массива"
                           {:tokens tokens})))
         
-        (let [size-expr (parse-expression (rest after-open))
-              [close-bracket & after-close] (:tokens size-expr)]
-          (when-not (= (:value close-bracket) "]")
-            (log/error "Ожидается ']' после размера массива")
-            (throw (ex-info "Отсутствует ']'"
-                            {:tokens tokens})))
+        (cond
+          ;; Простое объявление массива
+          (= (:value next-token) ";")
+          {:type (:variable-declaration ast-node-types)
+           :var-type (str full-type "[]")
+           :name (:value name-token)
+           :is-array true
+           :array-size size-result
+           :tokens (rest after-close)}
           
-          (let [[next-token & after-next] after-close]
-            (cond
-              ;; Простое объявление массива
-              (= (:value next-token) ";")
-              {:type (:variable-declaration ast-node-types)
-               :var-type (str (:value type-token) "[]")
-               :name (:value name-token)
-               :is-array true
-               :array-size size-expr
-               :tokens after-next}
-              
-              ;; Инициализация массива
-              (= (:value next-token) "=")
-              (let [[open-brace & after-open] (rest after-next)
-                    init-values (parse-array-initializer 
-                                 (cons open-brace after-open))]
-                (when-not (= (:value open-brace) "{")
-                  (log/error "Ожидается '{' для инициализации массива")
-                  (throw (ex-info "Отсутствует '{' для инициализации"
-                                  {:tokens tokens})))
-                
-                {:type (:variable-declaration ast-node-types)
-                 :var-type (str (:value type-token) "[]")
-                 :name (:value name-token)
-                 :is-array true
-                 :array-size size-expr
-                 :init-values init-values
-                 :tokens (:tokens init-values)})
-              
-              :else
-              (throw (ex-info "Некорректный синтаксис объявления массива"
-                              {:tokens tokens})))))))))
+          ;; Инициализация массива
+          (= (:value next-token) "=")
+          (let [[open-brace & after-open] (rest after-close)
+                init-values (parse-array-initializer 
+                             (cons open-brace after-open))]
+            (when-not (= (:value open-brace) "{")
+              (log/error "Ожидается '{' для инициализации массива")
+              (throw (ex-info "Отсутствует '{' для инициализации массива"
+                              {:tokens tokens})))
+            
+            {:type (:variable-declaration ast-node-types)
+             :var-type (str full-type "[]")
+             :name (:value name-token)
+             :is-array true
+             :array-size size-result
+             :init-values init-values
+             :tokens (:tokens init-values)})
+          
+          :else
+          (throw (ex-info "Некорректный синтаксис объявления массива"
+                          {:tokens tokens
+                           :unexpected-token next-token}))))
 
 ;; Парсер для инициализации массивов
 (defn- ^:private parse-array-initializer
-  "Семантический парсинг инициализации массивов
+  "Семантический парсер инициализации массивов с расширенной диагностикой
 
-  Грамматика:
-  {val1, val2, val3, ...}
+  Обработка инициализаций вида:
+  - char foo[3] = {1, 2, 3}
+  - unsigned char bar[3] = {4, 5, 6}
 
-  Ключевые аспекты парсинга:
-  - Распознавание списка значений
-  - Поддержка различных типов значений
-  - Проверка синтаксиса"
+  Ключевые аспекты:
+  - Строгая проверка типов
+  - Поддержка различных числовых литералов
+  - Диагностика семантических ошибок"
   [tokens]
   (log/debug "Начало парсинга инициализации массива")
-  (log/trace "Входящие токены: " (pr-str (take 5 tokens)))
+  (log/trace "Входящие токены: " (pr-str (take 15 tokens)))
 
-  (let [[open-brace & rest] tokens]
-    (when-not (= (:value open-brace) "{")
-      (log/error "Ожидается '{' для инициализации массива")
-      (throw (ex-info "Отсутствует '{' для инициализации"
-                      {:tokens tokens})))
-    
-    (loop [remaining rest
-           values []]
-      (let [[current-token & next-tokens] remaining]
-        (cond
-          ;; Закрывающая фигурная скобка
-          (= (:value current-token) "}")
-          {:type :array-initializer
-           :values values
-           :tokens next-tokens}
-          
-          ;; Разделитель значений
-          (= (:value current-token) ",")
-          (recur next-tokens values)
-          
-          ;; Парсинг значения
-          :else
-          (let [value-expr (parse-expression (cons current-token remaining))
-                [next-token & after-next] (:tokens value-expr)]
-            (cond
-              ;; Конец инициализации
-              (= (:value next-token) "}")
-              {:type :array-initializer
-               :values (conj values value-expr)
-               :tokens after-next}
-              
-              ;; Разделитель значений
-              (= (:value next-token) ",")
-              (recur after-next (conj values value-expr))
-              
-              :else
-              (throw (ex-info "Некорректный синтаксис инициализации массива"
-                              {:tokens tokens})))))))))
+  ;; Проверка открывающей фигурной скобки
+  (when-not (and (first tokens) 
+                 (= (:value (first tokens)) "{"))
+    (throw (ex-info "Ожидается '{' для инициализации массива"
+                    {:tokens tokens})))
+
+  ;; Рекурсивный парсинг элементов массива
+  (loop [remaining (rest tokens)
+         parsed-values []]
+    (let [current-token (first remaining)]
+      (cond 
+        ;; Конец инициализации
+        (= (:value current-token) "}")
+        {:type :array-initializer
+         :values parsed-values
+         :tokens (rest remaining)}
+        
+        ;; Парсинг числового литерала
+        (contains? #{:decimal-literal :hex-literal} (:type current-token))
+        (let [value (parse-numeric-literal current-token)
+              [comma & next-tokens] (rest remaining)]
+          (recur 
+           next-tokens 
+           (conj parsed-values 
+                 {:type :numeric-literal
+                  :value value
+                  :original-token current-token})))
+        
+        ;; Обработка запятой между элементами
+        (= (:value current-token) ",")
+        (recur (rest remaining) parsed-values)
+        
+        ;; Обработка неожиданных токенов
+        :else
+        (throw 
+         (ex-info "Неожиданный токен в инициализации массива"
+                  {:tokens tokens
+                   :unexpected-token current-token
+                   :parsed-values parsed-values}))))))))
 
 ;; Парсер для структур
 (defn parse-struct-declaration 
@@ -2259,3 +2310,39 @@
              :name (:value name-token)
              :value value-expr
              :tokens remaining}))))))
+
+;; Функция для парсинга числовых литералов
+(defn- ^:private parse-numeric-literal 
+  "Семантический парсинг числовых литералов
+
+  Поддерживаемые форматы:
+  - Десятичные: 42, 100
+  - Шестнадцатеричные: 0x2A, 0xFF
+
+  Ключевые аспекты:
+  - Распознавание десятичных и шестнадцатеричных чисел
+  - Преобразование в числовое значение
+  - Обработка ошибок преобразования"
+  [token]
+  (log/debug "Парсинг числового литерала")
+  (try 
+    (cond 
+      ;; Десятичный литерал
+      (= (:type token) :decimal-literal)
+      (Integer/parseInt (:value token))
+      
+      ;; Шестнадцатеричный литерал
+      (= (:type token) :hex-literal)
+      (Integer/parseInt 
+       (subs (:value token) 2)  ;; Удаление префикса 0x
+       16)
+      
+      :else
+      (throw (ex-info "Неподдерживаемый тип числового литерала"
+                      {:token token})))
+    (catch NumberFormatException e
+      (log/error "Ошибка преобразования числового литерала" 
+                 {:token token 
+                  :error (.getMessage e)})
+      (throw (ex-info "Некорректный числовой литерал"
+                      {:token token})))))
