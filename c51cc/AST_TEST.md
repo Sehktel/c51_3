@@ -6,3 +6,4 @@
 (ast/set-debug-tokens! false) ;; выключить отображение токенов
 
 (ast/view-ast-from-file)
+(ast/view-ast-from-file "./test/c51code/test_24_csumab.c")
