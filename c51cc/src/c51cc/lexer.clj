@@ -4,23 +4,24 @@
             [c51cc.logger :as log]))
 
 ;; Предварительное объявление всех функций
-(declare keywords)
-(declare is-special-keyword?)
-(declare is-type-keyword?)
-(declare is-separator-keyword?)
-(declare is-operator-keyword?)
-(declare is-control-flow-keyword?)
-(declare is-constant-keyword?)
-(declare is-identifier?)
-(declare is-number?)
-(declare is-string?)
-(declare get-token-type)
-(declare tokenize)
+(declare  keywords
+          is-special-keyword?
+          is-type-keyword?
+          is-separator-keyword?
+          is-operator-keyword?
+          is-control-flow-keyword?
+          is-constant-keyword?
+          is-identifier?
+          is-number?
+          is-string?
+          get-token-type
+          tokenize)
 
 ;; =============================================
 ;; Определение типов токенов
 ;; =============================================
 
+;; Определение типов токенов
 (def keywords
   "Определение типов токенов"
   {
@@ -28,11 +29,13 @@
    :include_directive ["#include"]
    ;; Системные заголовочные файлы в угловых скобках: <stdio.h>
    :include_path_system #"^<[a-zA-Z0-9_./]+\.h>"
-   
+   ;; Пользовательские заголовочные файлы в двойных кавычках: "stdio.h"
+   ;; TODO: Добавить поддержку пользовательских заголовочных файлов в двойных кавычках
+   ;; :include_path_user #"^\"[a-zA-Z0-9_./]+\.h\""
    :include_path_regex #"<[a-zA-Z0-9_./]+\.h>"
    :include_path_h_regex #"<[a-zA-Z0-9_./]+\.h>"
 
-
+   ;; Директивы препроцессора
    :define_directive ["#define"]
    :undef_directive ["#undef"]
    :if_directive ["#if"]
@@ -42,53 +45,62 @@
    :elif_directive ["#elif"]
    :endif_directive ["#endif"]
    :error_directive ["#error"]
-   :pragma_directive ["#pragma"]
-   :line_directive ["#line"]
-   :warning_directive ["#warning"]
+   
+   ;; TODO: Добавить поддержку директивы #pragma, #line, #warning
+   ;; :pragma_directive ["#pragma"]
+   ;; :line_directive ["#line"]
+   ;; :warning_directive ["#warning"]
    
    
-   ;; Special Keywords  
-   :sfr_special_keyword ["sfr"]
-   :sbit_special_keyword ["sbit"]
-   :interrupt_special_keyword ["interrupt"]
-   :using_special_keyword ["using"]
+   ;; Специальные ключевые слова
+   :sfr_special_keyword ["sfr"]  ;; Special Function Register
+   :sbit_special_keyword ["sbit"] ;; Special Bit
+   :interrupt_special_keyword ["interrupt"] ;; Interrupt
+   :using_special_keyword ["using"] ;; Using
 
-   ;; Data Types
-   :char_type_keyword ["char"]
-   :int_type_keyword ["int"]
-   :void_type_keyword ["void"]
-   :signed_type_keyword ["signed"]
-   :unsigned_type_keyword ["unsigned"]
+   ;; Типы данных
+   :char_type_keyword ["char"] ;; 1 байт
+   :int_type_keyword ["int"] ;; 2 байта
+   :void_type_keyword ["void"] ;; Пустой тип
+   :signed_type_keyword ["signed"] ;; Знаковый тип
+   :unsigned_type_keyword ["unsigned"] ;; Беззнаковый тип
 
-   ;; Separators
-   :open_round_bracket ["("]
-   :close_round_bracket [")"]
-   :open_curly_bracket ["{"]
-   :close_curly_bracket ["}"]
-   :open_square_bracket ["["]
-   :close_square_bracket ["]"]
-   :semicolon [";"]
-   :comma [","]
-   :colon [":"]
+   ;; Разделители
+   :open_round_bracket ["("] ;; Открывающая круглая скобка
+   :close_round_bracket [")"] ;; Закрывающая круглая скобка
+   :open_curly_bracket ["{"] ;; Открывающая фигурная скобка
+   :close_curly_bracket ["}"] ;; Закрывающая фигурная скобка
+   :open_square_bracket ["["] ;; Открывающая квадратная скобка
+   :close_square_bracket ["]"] ;; Закрывающая квадратная скобка
+   :semicolon [";"] ;; Точка с запятой
+   :comma [","] ;; Запятая
+   :colon [":"] ;; Двоеточие
 
-   ;; Operators
-   :arithmetic_operators ["+", "-", "*", "/", "%"]
-   :comparison_operators ["==", "!=", "<", ">", "<=", ">="]
-   :logical_operators ["&&", "||", "!"]
-   :bitwise_operators ["&", "|", "^"]
-   :bitwise_shift_operators ["<<", ">>"]
+   ;; Арифметические операторы
+   :arithmetic_operators ["+", "-", "*", "/", "%"] ;; Арифметические операторы
+   ;; Операторы сравнения
+   :comparison_operators ["==", "!=", "<", ">", "<=", ">="] 
+   ;; Логические операторы
+   :logical_operators ["&&", "||", "!"] 
+   ;; Побитовые операторы
+   :bitwise_operators ["&", "|", "^"] 
+   ;; Битовые сдвиговые операторы
+   :bitwise_shift_operators ["<<", ">>"] 
+   ;; Операторы присваивания
    :assignment_operators ["=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="]
+   ;; Операторы инкремента и декремента
    :inc_operator ["++"]
    :dec_operator ["--"]
    :increment_decrement_operators ["++", "--"]
+   ;; Унарные операторы
    :unary_operators ["~", "!"]
 
-   ;; Control Flow:
+   ;; Управляющие конструкции
    :if_keyword ["if"]
    :else_keyword ["else"]
    :switch_keyword ["switch"]
-   :case_keyword ["case"]
-   :default_keyword ["default"]
+   :case_keyword ["case"] ;; TODO: Добавить поддержку case
+   :default_keyword ["default"] ;; TODO: Добавить поддержку default
    :for_keyword ["for"]
    :while_keyword ["while"]
    :do_keyword ["do"]
@@ -97,14 +109,16 @@
    :return_keyword ["return"]
    :goto_keyword ["goto"]
 
-   ;; Constants
+   ;; Константы
    :const_keyword ["const"]
 
-   ;; Identifiers
+   ;; Идентификаторы
    :identifier #"[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*"
+   ;; Целочисленные константы
    :int_number #"[-+]?[0-9]+"
+   ;; Шестнадцатеричные константы
    :hex_number #"0[xX][0-9a-fA-F]+"
-
+   ;; Строковые константы
    :string #"\"[^\"]*\""
    })
 
@@ -116,8 +130,9 @@
 ;; Проверки типов токенов
 ;; =============================================
 
+;; Проверяет, является ли токен препроцессорной директивой
 (defn is-preprocessor-directive?
-  "Проверяет, является ли строка препроцессорной директивой"
+  "Проверяет, является ли токен препроцессорной директивой"
   [s]
   (boolean (some #{s} 
                  (concat
@@ -131,18 +146,22 @@
                   (get keywords :elif_directive)
                   (get keywords :endif_directive)
                   (get keywords :error_directive)
-                  (get keywords :pragma_directive)
-                  (get keywords :line_directive)
-                  (get keywords :warning_directive)))))
+                  ;; (get keywords :pragma_directive)
+                  ;; (get keywords :line_directive)
+                  ;; (get keywords :warning_directive)
+                  ))))
 
+;; Проверяет, является ли токен путем для включения файла
 (defn is-include-path?
-  "Проверяет, является ли строка путем для включения файла.
+  "Проверяет, является ли токен путем для включения файла.
    Допускаются только системные заголовочные файлы в формате <file.h>"
   [s]
+  ;; TODO: Добавить поддержку пользовательских заголовочных файлов в двойных кавычках
   (boolean (re-matches (:include_path_system keywords) s)))
 
+;; Проверяет, является ли токен специальным ключевым словом
 (defn is-special-keyword?
-  "Проверяет, является ли строка специальным ключевым словом"
+  "Проверяет, является ли токен специальным ключевым словом"
   [s]
   (boolean (some #{s}
                  (concat
@@ -151,8 +170,9 @@
                   (get keywords :interrupt_special_keyword)
                   (get keywords :using_special_keyword)))))
 
+;; Проверяет, является ли токен типом
 (defn is-type-keyword?
-  "Проверяет, является ли строка типом"
+  "Проверяет, является ли токен типом"
   [s]
   (boolean (some #{s}
                  (concat
@@ -162,8 +182,9 @@
                   (get keywords :signed_type_keyword)
                   (get keywords :unsigned_type_keyword)))))
 
+;; Проверяет, является ли токен разделителем
 (defn is-separator-keyword?
-  "Проверяет, является ли строка разделителем"
+  "Проверяет, является ли токен разделителем"
   [s]
   (boolean (some #{s}
                  (concat
@@ -177,8 +198,9 @@
                   (get keywords :comma)
                   (get keywords :colon)))))
 
+;; Проверяет, является ли токен оператором
 (defn is-operator-keyword?
-  "Проверяет, является ли строка оператором"
+  "Проверяет, является ли токен оператором"
   [s]
   (boolean (some #{s}
                  (concat
@@ -193,16 +215,17 @@
                   (get keywords :inc_operator)
                   (get keywords :dec_operator)))))
 
+;; Проверяет, является ли токен управляющей конструкцией
 (defn is-control-flow-keyword?
-  "Проверяет, является ли строка управляющей конструкцией"
+  "Проверяет, является ли токен управляющей конструкцией"
   [s]
   (boolean (some #{s}
                  (concat
                   (get keywords :if_keyword)
                   (get keywords :else_keyword)
                   (get keywords :switch_keyword)
-                  (get keywords :case_keyword)
-                  (get keywords :default_keyword)
+                  (get keywords :case_keyword) ;; TODO: Добавить поддержку case
+                  (get keywords :default_keyword) ;; TODO: Добавить поддержку default
                   (get keywords :for_keyword)
                   (get keywords :while_keyword)
                   (get keywords :do_keyword)
@@ -211,24 +234,28 @@
                   (get keywords :return_keyword)
                   (get keywords :goto_keyword)))))
 
+;; Проверяет, является ли токен константой
 (defn is-constant-keyword?
-  "Проверяет, является ли строка константой"
+  "Проверяет, является ли токен константой"
   [s]
   (boolean (some #{s} (get keywords :const_keyword))))
 
+;; Проверяет, является ли токен идентификатором
 (defn is-identifier?
-  "Проверяет, является ли строка идентификатором"
+  "Проверяет, является ли токен идентификатором"
   [s]
   (boolean (re-matches (:identifier keywords) s)))
 
+;; Проверяет, является ли токен числом
 (defn is-number?
-  "Проверяет, является ли строка числом"
+  "Проверяет, является ли токен числом"
   [s]
   (boolean
    (or
     (re-matches (:int_number keywords) s)
     (re-matches (:hex_number keywords) s))))
 
+;; Определяет тип числа
 (defn get-number-type
   "Определяет тип числа"
   [s]
@@ -237,11 +264,13 @@
     (re-matches (:hex_number keywords) s) :hex_number
     :else :unknown))
 
+;; Проверяет, является ли токен строковым литералом
 (defn is-string?
-  "Проверяет, является ли строка строковым литералом"
+  "Проверяет, является ли токен строковым литералом"
   [s]
   (boolean (re-matches (:string keywords) s)))
 
+;; Определяет тип токена
 (defn get-token-type
   "Определяет тип токена"
   [token]
@@ -263,11 +292,13 @@
 ;; Токенизация кода
 ;; =============================================
 
+;; Создает токен для ключевого слова с указанным типом
 (defn token-for-keyword
   "Создает токен для ключевого слова с указанным типом"
  [token keyword-type]
  {:value token :type keyword-type})
 
+;; Создает карту токенов для быстрого сопоставления
 (defn create-token-map
   "Создает карту токенов для быстрого сопоставления"
   []
@@ -341,6 +372,7 @@
     (log/trace "Создана карта токенов. Количество токенов: " (count result))
     result))
 
+;; Находит токен на основе регулярных выражений
 (defn find-regex-token
   "Находит токен на основе регулярных выражений"
   [code]
@@ -388,6 +420,7 @@
       (log/info "Не удалось распознать токен")
       nil)))
 
+;; Токенизирует исходный код
 (defn tokenize
   "Преобразует исходный код в последовательность токенов"
   [code]
@@ -441,14 +474,17 @@
 ;; Обогащение токенов C51-специфичной информацией
 ;; =============================================
 
+;; Пространства памяти C51
 (def ^:private c51-memory-spaces
   "Пространства памяти C51"
   #{"data" "xdata" "code" "idata" "pdata"})
 
+;; Специальные регистры C51
 (def ^:private c51-sfr-keywords
   "Ключевые слова для специальных регистров"
   #{"sfr" "sbit"})
 
+;; Обогащает токены информацией о директивах памяти
 (defn enrich-with-memory-directives
   "Обогащает токены информацией о директивах памяти"
   [tokens]
@@ -460,6 +496,7 @@
            token))
        tokens))
 
+;; Обогащает токены информацией о специальных регистрах
 (defn enrich-with-sfr-declarations
   "Обогащает токены информацией о специальных регистрах"
   [tokens]
@@ -471,6 +508,7 @@
            token))
        tokens))
 
+;; Обогащает токены информацией о битовой адресации
 (defn enrich-with-bit-addressing
   "Обогащает токены информацией о битовой адресации"
   [tokens]
@@ -497,6 +535,7 @@
         (recur (rest remaining)
                (conj result curr))))))
 
+;; Обогащает токены информацией о прерываниях
 (defn enrich-with-interrupts
   "Обогащает токены информацией о прерываниях"
   [tokens]
@@ -521,6 +560,7 @@
         (recur (rest remaining)
                (conj result curr))))))
 
+;; Обогащает токены всей C51-специфичной информацией
 (defn enrich-with-c51-specifics
   "Обогащает токены всей C51-специфичной информацией"
   [tokens]
@@ -534,6 +574,7 @@
 ;; Токенизация C51
 ;; =============================================
 
+;; Токенизирует и обогащает токены специфичной для C51 информацией
 (defn tokenize-c51
   "Токенизация и обогащение токенов специфичной для C51 информацией"
   [input]
@@ -543,6 +584,7 @@
     (->> base-tokens
          enrich-with-c51-specifics)))
 
+;; Проверяет корректность последовательности токенов
 (defn validate-token-sequence
   "Проверяет корректность последовательности токенов"
   [tokens]
@@ -562,33 +604,32 @@
   (log/debug "Распознавание типов памяти")
   tokens)
 
+;; Распознавание ключевых слов SFR
 (defn recognize-sfr-keywords
   "Распознавание ключевых слов SFR"
   [tokens]
   (log/debug "Распознавание SFR")
   tokens)
 
+;; Распознавание битовой адресации
 (defn recognize-bit-addressing
   "Распознавание битовой адресации"
   [tokens]
   (log/debug "Распознавание битовой адресации")
   tokens)
 
+;; Распознавание прерываний
 (defn recognize-interrupts
   "Распознавание прерываний"
   [tokens]
   (log/debug "Распознавание прерываний")
   tokens)
 
-(defn enrich-with-c51-specifics
-  "Обогащение токенов C51-специфичной информацией"
-  [tokens]
-  (log/debug "Обогащение токенов C51-специфичной информацией")
-  tokens)
-
+;; Создание контекста парсинга
 (defn create-parsing-context
   "Создание контекста парсинга"
   [tokens]
   (log/debug "Создание контекста парсинга")
   {:scope-type :default
-   :memory-space :default})
+   :memory-space :default
+   :tokens tokens})
