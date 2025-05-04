@@ -24,7 +24,25 @@
    :variable-declaration :variable-declaration
    :function-call :function-call
    :control-flow :control-flow
-   :expression :expression})
+   :expression :expression
+   :binary-operation :binary-operation
+   :unary-operation :unary-operation
+   :assignment :assignment
+   :if-else :if-else
+   :while-loop :while-loop
+   :for-loop :for-loop
+   :do-while :do-while
+   :switch-case :switch-case
+   :break-continue :break-continue
+   :return :return
+   :array-declaration :array-declaration
+   :pointer-declaration :pointer-declaration
+   :variable :variable
+   :constant :constant
+   :function :function
+   :struct-declaration :struct-declaration
+   :enum-declaration :enum-declaration
+   })
 
 (declare pretty-print-ast)
 
