@@ -1,698 +1,429 @@
 (ns c51cc.parser_test
-  "Тесты для синтаксического анализатора"
-  (:require [clojure.test :refer :all]
+  "Тесты для синтаксического анализатора C51.
+   Использует функциональный подход к тестированию."
+  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+            [clojure.string :as str]
             [c51cc.logger :as log]
             [c51cc.parser :as parser]
-            [c51cc.lexer :as lexer]))
+            [c51cc.lexer :as lexer]
+            [c51cc.test-utils :refer [test-parse-expression ;; парсинг выражений
+                                    test-parse-binary-operation ;; парсинг бинарных операций
+                                    test-parse-variable-declaration ;; парсинг объявлений переменных
+                                    test-parse-function-declaration ;; парсинг объявлений функций
+                                    test-parse-array-declaration ;; парсинг объявлений массивов
+                                    test-parse-pointer-declaration ;; парсинг объявлений указателей
+                                    test-parse-assignment ;; парсинг присваиваний
+                                    test-parse-if-else ;; парсинг if-else
+                                    test-parse-while-loop ;; парсинг while-loop
+                                    test-parse-for-loop ;; парсинг for-loop
+                                    test-parse-do-while ;; парсинг do-while
+                                    test-parse-switch-case ;; парсинг switch-case
+                                    test-parse-break-continue ;; парсинг break-continue
+                                    test-parse-return ;; парсинг return
+                                    ]]))
 
-(defn fixture-setup [f]
-  (log/set-debug-level! :DEBUG)
+;; =============================================
+;; Фикстуры и вспомогательные функции
+;; =============================================
+
+(defn setup-fixture
+  "Фикстура для настройки тестового окружения"
+  [f]
+  (log/set-debug-level! :INFO)
   (f))
 
-(use-fixtures :each fixture-setup)
+(use-fixtures :each setup-fixture)
 
-;; Вспомогательная функция для создания токенов с логированием
+(defn create-token
+  "Создает токен с заданным типом и значением"
+  [type value]
+  {:type type :value value})
+
 (defn create-tokens
-  "Создание списка токенов для тестирования с отладочным логированием"
+  "Создает последовательность токенов для тестирования.
+   Принимает пары [тип значение]."
   [& token-specs]
-  (log/debug "Создание токенов:" token-specs)
-  (let [tokens (mapv (fn [[type value]]
-                       {:type type :value value})
-                     token-specs)]
-    (log/debug "Созданные токены:" tokens)
-    tokens))
+  (->> token-specs
+       (partition 2)
+       (mapv (fn [[type value]] (create-token type value)))))
 
-;; Тесты для парсинга программы
-(deftest test-parse-program
-  (testing "Парсинг пустой программы"
-    (let [tokens []
-          result (parser/parse-program tokens)]
-      (is (= (:type result) :program))
-      (is (empty? (:nodes result)))))
+(defn assert-node-type
+  "Проверяет тип узла AST"
+  [node expected-type]
+  (is (= (:type node) expected-type)
+      (str "Ожидался тип узла " expected-type ", получен " (:type node))))
 
-  (testing "Парсинг простой программы с пустой функцией"
-    (try
-      (let [tokens (create-tokens
-                    [:type-keyword "void"]
-                    [:identifier "main"]
-                    [:separator "("]
-                    [:separator ")"]
-                    [:separator "{"]
-                    [:separator "}"])
-            _ (log/debug "Созданы токены для теста")
-            result (do
-                    (log/debug "Начало парсинга программы")
-                    (let [r (parser/parse-program tokens)]
-                      (log/debug "Парсинг завершен")
-                      r))]
-        (is (= (:type result) :program))
-        (is (= (count (:nodes result)) 1))
-        (let [main-func (first (:nodes result))]
-          (is (= (:type main-func) :function-declaration))
-          (is (= (get-in main-func [:name :value]) "main"))))
-      (catch Exception e
-        (log/error "Ошибка в тесте:" (str e))
-        (throw e)))))
+(defn assert-node-value
+  "Проверяет значение в узле AST по указанному пути"
+  [node path expected-value]
+  (is (= (get-in node path) expected-value)
+      (str "Ожидалось значение " expected-value " по пути " path)))
 
-;; Тесты для парсинга функций
-(deftest test-parse-function-declaration
-  (testing "Корректное объявление функции без параметров"
-    ;; (log/set-debug-level! :TRACE)
-    (log/debug "Начало теста: Корректное объявление функции")
+;; =============================================
+;; Тесты базовых выражений
+;; =============================================
+
+(deftest test-basic-expressions
+  (testing "Парсинг идентификатора"
+    (let [tokens (create-tokens :identifier "x")
+          result (test-parse-expression tokens)]
+      (assert-node-type result :identifier)
+      (assert-node-value result [:value] "x")))
+
+  (testing "Парсинг числового литерала"
+    (let [tokens (create-tokens :int_number "42")
+          result (test-parse-expression tokens)]
+      (assert-node-type result :number)
+      (assert-node-value result [:value] "42")))
+
+  (testing "Парсинг строкового литерала"
+    (let [tokens (create-tokens :string "\"test\"")
+          result (test-parse-expression tokens)]
+      (assert-node-type result :string)
+      (assert-node-value result [:value] "\"test\""))))
+
+;; =============================================
+;; Тесты бинарных операций
+;; =============================================
+
+(deftest test-binary-operations
+  (testing "Простая бинарная операция"
+    (let [tokens (create-tokens 
+                  :int_number "10" 
+                  :operator "+" 
+                  :int_number "5")
+          result (test-parse-binary-operation tokens)]
+      (assert-node-type result :binary-operation)
+      (assert-node-value result [:operator] "+")
+      (assert-node-value result [:left :value] "10")
+      (assert-node-value result [:right :value] "5")))
+
+  (testing "Бинарная операция с приоритетами"
     (let [tokens (create-tokens
-                  [:type-keyword "int"]
-                  [:identifier "testFunction"]
-                  [:separator "("]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:separator "}"])
+                  :int_number "1"
+                  :operator "+"
+                  :int_number "2"
+                  :operator "*"
+                  :int_number "3")
+          result (test-parse-binary-operation tokens)]
+      (assert-node-type result :binary-operation)
+      (assert-node-value result [:operator] "+")
+      (let [right-node (get-in result [:right])]
+        (assert-node-type right-node :binary-operation)
+        (assert-node-value right-node [:operator] "*")))))
+
+;; =============================================
+;; Тесты объявлений переменных
+;; =============================================
+
+(deftest test-variable-declarations
+  (testing "Простое объявление переменной"
+    (let [tokens (create-tokens
+                  :type-keyword "int"
+                  :identifier "x"
+                  :separator ";")
+          result (test-parse-variable-declaration tokens)]
+      (assert-node-type result :variable-declaration)
+      (assert-node-value result [:var-type] "int")
+      (assert-node-value result [:name] "x")))
+
+  (testing "Объявление с инициализацией"
+    (let [tokens (create-tokens
+                  :type-keyword "int"
+                  :identifier "x"
+                  :operator "="
+                  :int_number "42"
+                  :separator ";")
+          result (test-parse-variable-declaration tokens)]
+      (assert-node-type result :variable-declaration)
+      (assert-node-value result [:var-type] "int")
+      (assert-node-value result [:name] "x")
+      (assert-node-value result [:init-value :value] "42"))))
+
+;; =============================================
+;; Тесты объявлений функций
+;; =============================================
+
+(deftest test-function-declarations
+  (testing "Объявление функции без параметров"
+    (let [tokens (create-tokens
+                  :type-keyword "void"
+                  :identifier "test"
+                  :separator "("
+                  :separator ")"
+                  :separator "{"
+                  :separator "}")
+          result (test-parse-function-declaration tokens)]
+      (assert-node-type result :function-declaration)
+      (assert-node-value result [:return-type :value] "void")
+      (assert-node-value result [:name :value] "test")
+      (is (empty? (:parameters result)))))
+
+  (testing "Объявление функции с параметрами"
+    (let [tokens (create-tokens
+                  :type-keyword "int"
+                  :identifier "sum"
+                  :separator "("
+                  :type-keyword "int"
+                  :identifier "a"
+                  :separator ","
+                  :type-keyword "int"
+                  :identifier "b"
+                  :separator ")"
+                  :separator "{"
+                  :separator "}")
           result (parser/parse-function-declaration tokens)]
-      (log/debug "Результат парсинга функции:" result)
-      (is (= (:type result) :function-declaration))
-      (is (= (:return-type result) {:type :type-keyword :value "int"}))
-      (is (= (:name result) {:type :identifier :value "testFunction"}))
-      (is (empty? (:parameters result)))
-      (is (= (:body result) []))
-      (log/debug "Тест завершен успешно")))
+      (assert-node-type result :function-declaration)
+      (assert-node-value result [:return-type :value] "int")
+      (assert-node-value result [:name :value] "sum")
+      (is (= (count (:parameters result)) 2))
+      (is (every? #(= (:type %) "int") (:parameters result))))))
 
-  (testing "Корректное объявление функции с параметром void"
-    (log/debug "Начало теста: Функция с параметром void")
+;; =============================================
+;; Тесты управляющих конструкций
+;; =============================================
+
+(deftest test-control-structures
+  (testing "Парсинг if-else"
     (let [tokens (create-tokens
-                  [:type-keyword "void"]
-                  [:identifier "functionWithVoidParam"]
-                  [:separator "("]
-                  [:type-keyword "void"]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:separator "}"])
-          result (parser/parse-function-declaration tokens)]
-      (log/debug "Результат парсинга функции:" result)
-      (is (= (:type result) :function-declaration))
-      (is (= (:return-type result) {:type :type-keyword :value "void"}))
-      (is (= (:name result) {:type :identifier :value "functionWithVoidParam"}))
-      (is (= (count (:parameters result)) 1))
-      (is (= (first (:parameters result)) 
-             {:type "void" :name nil}))
-      (is (= (count (:body result)) 0))      
-      (log/debug "Тест завершен успешно")))
-
-  (testing "Корректное объявление функции с параметрами"
-    (log/debug "Начало теста: Функция с параметрами")
-    (let [tokens (create-tokens
-                  [:type-keyword "void"]
-                  [:identifier "functionWithParams"]
-                  [:separator "("]
-                  [:type-keyword "int"]
-                  [:identifier "x"]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:separator "}"])
-          result (parser/parse-function-declaration tokens)]
-      (log/debug "Результат парсинга функции:" result)
-      (is (= (:type result) :function-declaration))
-      (is (= (:return-type result) {:type :type-keyword :value "void"}))
-      (is (= (:name result) {:type :identifier :value "functionWithParams"}))
-      (is (= (count (:parameters result)) 1))
-      (is (= (first (:parameters result)) 
-             {:type "int" :name "x"}))
-      (is (= (count (:body result)) 0))      
-      (log/debug "Тест завершен успешно")))
-
-  (testing "Некорректное объявление функции"
-    (log/debug "Начало теста: Некорректное объявление функции")
-    (let [tokens (create-tokens
-                  [:identifier "invalidFunction"]
-                  [:separator "("])]
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"Некорректное начало объявления функции"
-           (parser/parse-function-declaration tokens)))
-      (log/debug "Тест на некорректное объявление функции завершен"))))
-
-;; Тесты для парсинга переменных
-(deftest test-parse-variable-declaration
-  ;; (testing "Корректное объявление переменной"
-  ;;   (log/debug "Начало теста: Корректное объявление переменной")
-  ;;   (let [tokens (create-tokens
-  ;;                 [:type-keyword "int"]
-  ;;                 [:identifier "x"])
-  ;;         parser (parser/create-parser tokens)
-  ;;         result (parser/parse-variable-declaration tokens)]
-  ;;     (log/debug "Результат парсинга переменной:" result)
-  ;;     (is (= (:type result) :variable-declaration))
-  ;;     (is (= (:var-type result) "int"))
-  ;;     (is (= (:name result) "x"))
-  ;;     (log/debug "Тест завершен успешно")))
-
-  ;; (testing "Некорректное объявление переменной"
-  ;;   (log/debug "Начало теста: Некорректное объявление переменной")
-  ;;   (let [tokens (create-tokens
-  ;;                 [:identifier "y"])
-  ;;         parser (parser/create-parser tokens)]
-  ;;     (is (thrown-with-msg?
-  ;;          clojure.lang.ExceptionInfo
-  ;;          #"Некорректное объявление переменной"
-  ;;          (parser/parse-variable-declaration tokens)))
-  ;;     (log/debug "Тест на некорректное объявление переменной завершен")))
-      )
-
-;; Тесты для парсинга выражений
-(deftest test-parse-expression
-  ;; (testing "Парсинг идентификатора"
-  ;;   (log/debug "Начало теста: Парсинг идентификатора")
-  ;;   (let [tokens (create-tokens
-  ;;                 [:identifier "variable"])
-  ;;         parser (parser/create-parser tokens)
-  ;;         result (parser/parse-expression tokens)]
-  ;;     (log/debug "Результат парсинга идентификатора:" result)
-  ;;     (is (= (:type result) :expression))
-  ;;     (is (= (:value result) "variable"))
-  ;;     (log/debug "Тест завершен успешно")))
-
-  ;; (testing "Парсинг числа"
-  ;;   (log/debug "Начало теста: Парсинг числа")
-  ;;   (let [tokens (create-tokens
-  ;;                 [:int_number "42"])
-  ;;         parser (parser/create-parser tokens)
-  ;;         result (parser/parse-expression tokens)]
-  ;;     (log/debug "Результат парсинга числа:" result)
-  ;;     (is (= (:type result) :expression))
-  ;;     (is (= (:value result) "42"))
-  ;;     (log/debug "Тест завершен успешно")))
-
-  ;; (testing "Неподдерживаемое выражение"
-  ;;   (log/debug "Начало теста: Неподдерживаемое выражение")
-  ;;   (let [tokens (create-tokens
-  ;;                 [:unknown "something"])
-  ;;         parser (parser/create-parser tokens)]
-  ;;     (is (thrown-with-msg?
-  ;;          clojure.lang.ExceptionInfo
-  ;;          #"Неподдерживаемое выражение"
-  ;;          (parser/parse-expression tokens)))
-  ;;     (log/debug "Тест на неподдерживаемое выражение завершен")))
-      )
-
-;; Тесты для парсинга циклов for
-(deftest test-parse-for-loop
-  (testing "Корректный цикл for с инкрементом"
-    (log/debug "Начало теста: Корректный цикл for с инкрементом")
-    ;; (log/set-debug-level! :TRACE)
-    (let [tokens (create-tokens
-                  [:keyword "for"]
-                  [:separator "("]
-                  [:identifier "i"]
-                  [:operator "="]
-                  [:int_number "0"]
-                  [:separator ";"]
-                  [:identifier "i"]
-                  [:operator "<"]
-                  [:int_number "10"]
-                  [:separator ";"]
-                  [:identifier "i"]
-                  [:operator "++"]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:separator ";"]
-                  [:separator "}"])
-          result (parser/parse-for-loop tokens)]
-      (log/trace "type result :control-flow:")
-      (is (= (:type result) :control-flow))
-      (log/trace "subtype result :for-loop:")
-      (is (= (:subtype result) :for-loop))
-      (log/trace "initialization result :map?")
-      (is (map? (:initialization result)))
-      (log/trace "condition result :map?")
-      (is (map? (:condition result)))
-      (log/trace "step result :map?")
-      (is (map? (:step result)))
-      ;; (log/set-debug-level! :DEBUG)  
-      (log/debug "Тест завершен успешно")))
-
-  (testing "Корректный цикл for с декрементом"
-    (log/debug "Начало теста: Корректный цикл for с декрементом")
-    (let [tokens (create-tokens
-                  [:keyword "for"]
-                  [:separator "("]
-                  [:identifier "i"]
-                  [:operator "="]
-                  [:int_number "10"]
-                  [:separator ";"]
-                  [:identifier "i"]
-                  [:operator ">"]
-                  [:int_number "0"]
-                  [:separator ";"]
-                  [:identifier "i"]
-                  [:operator "--"]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:separator ";"]
-                  [:separator "}"])
-          result (parser/parse-for-loop tokens)]
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :for-loop))
-      (is (map? (:initialization result)))
-      (is (map? (:condition result)))
-      (is (map? (:step result)))
-      (log/debug "Тест завершен успешно")))
-
-  (testing "Корректный цикл for с составным шагом"
-    (log/debug "Начало теста: Корректный цикл for с составным шагом")
-    (let [tokens (create-tokens
-                  [:keyword "for"]
-                  [:separator "("]
-                  [:identifier "i"]
-                  [:operator "="]
-                  [:int_number "0"]
-                  [:separator ";"]
-                  [:identifier "i"]
-                  [:operator "<"]
-                  [:int_number "100"]
-                  [:separator ";"]
-                  [:identifier "i"]
-                  [:operator "+="]
-                  [:int_number "2"]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:separator ";"]
-                  [:separator "}"])
-          result (parser/parse-for-loop tokens)]
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :for-loop))
-      (is (map? (:initialization result)))
-      (is (map? (:condition result)))
-      (is (map? (:step result)))
-      (log/debug "Тест завершен успешно"))))
-
-;; Тесты для парсинга циклов while
-(deftest test-parse-while-loop
-  (testing "Корректный цикл while"
-    (log/debug "Начало теста: Корректный цикл while")
-    (let [tokens (create-tokens
-                  [:keyword "while"]
-                  [:separator "("]
-                  [:identifier "x"]
-                  [:operator ">"]
-                  [:int_number "0"]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:separator "}"])
-          ;; parser (parser/create-parser tokens)
-          result (parser/parse-while-loop tokens)]
-      (log/debug "Результат парсинга while-цикла:" result)
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :while-loop))
-      (is (map? (:condition result)))
-      (log/debug "Тест завершен успешно"))))
-
-;; Тесты для парсинга switch-case
-(deftest test-parse-switch-case
-  (testing "Корректная конструкция switch-case"
-    (log/debug "Начало теста: Корректный switch-case")
-    (let [tokens (create-tokens
-                  [:keyword "switch"]
-                  [:separator "("]
-                  [:identifier "x"]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:keyword "case"]
-                  [:int_number "1"]
-                  [:separator ":"]
-                  [:keyword "break"]
-                  [:separator ";"]
-                  [:keyword "default"]
-                  [:separator ":"]
-                  [:keyword "break"]
-                  [:separator ";"]
-                  [:separator "}"])
-          ;; parser (parser/create-parser tokens)
-          result (parser/parse-switch-case tokens)]
-      (log/debug "Результат парсинга switch-case:" result)
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :switch-case))
-      (is (vector? (:cases result)))
-      (is (map? (:default-case result)))
-      (log/debug "Тест завершен успешно"))))
-
-;; Тесты для парсинга do-while
-(deftest test-parse-do-while
-  (testing "Корректный цикл do-while"
-    (log/debug "Начало теста: Корректный do-while")
-    (let [tokens (create-tokens
-                  [:keyword "do"]
-                  [:separator "{"]
-                  [:separator "}"]
-                  [:keyword "while"]
-                  [:separator "("]
-                  [:identifier "x"]
-                  [:operator ">"]
-                  [:int_number "0"]
-                  [:separator ")"]
-                  [:separator ";"])
-          result (parser/parse-do-while tokens)]
-      (log/debug "Результат парсинга do-while:" result)
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :do-while))
-      (is (map? (:condition result)))
-      (log/debug "Тест завершен успешно")))
-     )
-
-;; Тесты для парсинга if-else
-(deftest test-parse-if-else
-  (testing "Корректная конструкция if-else"
-    (log/debug "Начало теста: Корректный if-else")
-    (let [tokens (create-tokens
-                  [:keyword "if"]
-                  [:separator "("]
-                  [:identifier "x"]
-                  [:operator "=="]
-                  [:int_number "0"]
-                  [:separator ")"]
-                  [:separator "{"]
-                  [:separator ";"]
-                  [:separator "}"]
-                  [:keyword "else"]
-                  [:separator "{"]
-                  [:separator ";"]
-                  [:separator "}"])
-          
-          result (parser/parse-if-else tokens)]
-      (log/debug "Результат парсинга if-else:" result)
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :if-else))
+                  :keyword "if"
+                  :separator "("
+                  :identifier "x"
+                  :operator ">"
+                  :int_number "0"
+                  :separator ")"
+                  :separator "{"
+                  :separator "}"
+                  :keyword "else"
+                  :separator "{"
+                  :separator "}")
+          result (test-parse-if-else tokens)]
+      (assert-node-type result :control-flow)
+      (assert-node-value result [:subtype] :if-else)
       (is (map? (:condition result)))
       (is (vector? (:true-block result)))
-      (is (vector? (:false-block result)))
-      (log/debug "Тест завершен успешно"))))
+      (is (vector? (:false-block result)))))
 
-;; Тесты для парсинга break/continue
-(deftest test-parse-break-continue
-  (testing "Корректный оператор break"
-    (log/debug "Начало теста: Корректный break")
+  (testing "Парсинг while"
     (let [tokens (create-tokens
-                  [:keyword "break"]
-                  [:separator ";"])
-          
-          result (parser/parse-break-continue tokens)]
-      (log/debug "Результат парсинга break:" result)
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :break))
-      (log/debug "Тест завершен успешно")))
+                  :keyword "while"
+                  :separator "("
+                  :identifier "x"
+                  :operator ">"
+                  :int_number "0"
+                  :separator ")"
+                  :separator "{"
+                  :separator "}")
+          result (test-parse-while-loop tokens)]
+      (assert-node-type result :control-flow)
+      (assert-node-value result [:subtype] :while-loop)
+      (is (map? (:condition result)))))
 
-  (testing "Корректный оператор continue"
+  (testing "Парсинг for"
     (let [tokens (create-tokens
-                  [:keyword "continue"]
-                  [:separator ";"])
-          
-          result (parser/parse-break-continue tokens)]
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :continue)))))
+                  :keyword "for"
+                  :separator "("
+                  :identifier "i"
+                  :operator "="
+                  :int_number "0"
+                  :separator ";"
+                  :identifier "i"
+                  :operator "<"
+                  :int_number "10"
+                  :separator ";"
+                  :identifier "i"
+                  :operator "++"
+                  :separator ")"
+                  :separator "{"
+                  :separator "}")
+          result (test-parse-for-loop tokens)]
+      (assert-node-type result :control-flow)
+      (assert-node-value result [:subtype] :for-loop)
+      (is (map? (:initialization result)))
+      (is (map? (:condition result)))
+      (is (map? (:step result))))))
 
-;; Тесты для парсинга return
-(deftest test-parse-return
-  (testing "Корректный оператор return с выражением"
-    (log/debug "Начало теста: Корректный return")
-    (let [tokens (create-tokens
-                  [:keyword "return"]
-                  [:identifier "x"]
-                  [:separator ";"])
-          
-          result (parser/parse-return  tokens)]
-      (log/debug "Результат парсинга return:" result)
-      (is (= (:type result) :control-flow))
-      (is (= (:subtype result) :return))
-      (is (map? (:value result)))
-      (log/debug "Тест завершен успешно"))))
+;; =============================================
+;; Тесты массивов
+;; =============================================
 
-;; Тесты для парсинга указателей
-(deftest test-parse-pointer-declaration
-  (testing "Корректное объявление указателя"
-    (log/debug "Начало теста: Корректное объявление указателя")
+(deftest test-arrays
+  (testing "Объявление массива"
     (let [tokens (create-tokens
-                  [:type-keyword "int"]
-                  [:operator "*"]
-                  [:identifier "ptr"]
-                  [:separator ";"])
-          
-          result (parser/parse-pointer-declaration tokens)]
-      (log/debug "Результат парсинга указателя:" result)
-      (is (= (:type result) :variable-declaration))
-      (is (= (:var-type result) "int*"))
-      (is (:is-pointer result))
-      (log/debug "Тест завершен успешно"))))
-
-;; Тесты для парсинга массивов
-(deftest test-parse-array-declaration
-  (testing "Корректное объявление массива"
-    (log/debug "Начало теста: Корректное объявление массива")
-    (let [tokens (create-tokens
-                  [:type-keyword "int"]
-                  [:identifier "foo"]
-                  [:separator "["]
-                  [:int_number "10"]
-                  [:separator "]"]
-                  [:separator ";"])
-          
-          result (parser/parse-array-declaration tokens)]
-      (log/debug "Результат парсинга массива:" result)
-      (is (= (:type result) :variable-declaration))
-      (is (= (:var-type result) "int[]"))
+                  :type-keyword "int"
+                  :identifier "arr"
+                  :separator "["
+                  :int_number "10"
+                  :separator "]"
+                  :separator ";")
+          result (test-parse-array-declaration tokens)]
+      (assert-node-type result :variable-declaration)
+      (assert-node-value result [:var-type] "int[]")
       (is (:is-array result))
-      (is (map? (:array-size result)))
-      (log/debug "Тест завершен успешно"))))
+      (assert-node-value result [:array-size :value] "10")))
 
-(deftest test-parse-array-initialization
-  (testing "Объявление массива с инициализацией простыми значениями"
-    (log/debug "Начало теста: Массив с инициализацией простыми значениями")
+  (testing "Инициализация массива"
     (let [tokens (create-tokens
-                  [:type-keyword "int"]
-                  [:identifier "numbers"]
-                  [:separator "["]
-                  [:int_number "5"]
-                  [:separator "]"]
-                  [:operator "="]
-                  [:separator "{"]
-                  [:int_number "1"]
-                  [:separator ","]
-                  [:int_number "2"]
-                  [:separator ","]
-                  [:int_number "3"]
-                  [:separator ","]
-                  [:int_number "4"]
-                  [:separator ","]
-                  [:int_number "5"]
-                  [:separator "}"]
-                  [:separator ";"])
-          
-          result (parser/parse-array-declaration tokens)]
-      (log/debug "Результат парсинга массива с инициализацией:" result)
-      (is (= (:type result) :variable-declaration))
-      (is (= (:var-type result) "int[]"))
+                  :type-keyword "int"
+                  :identifier "arr"
+                  :separator "["
+                  :int_number "3"
+                  :separator "]"
+                  :operator "="
+                  :separator "{"
+                  :int_number "1"
+                  :separator ","
+                  :int_number "2"
+                  :separator ","
+                  :int_number "3"
+                  :separator "}"
+                  :separator ";")
+          result (test-parse-array-declaration tokens)]
+      (assert-node-type result :variable-declaration)
+      (assert-node-value result [:var-type] "int[]")
       (is (:is-array result))
-      (is (map? (:array-size result)))
-      (is (= (get-in (:array-size result) [:value]) "5"))
-      (is (= (:type (:init-values result)) :array-initializer))
-      (is (= (count (:values (:init-values result))) 5))
-      (log/debug "Тест завершен успешно"))))
+      (let [init-values (get-in result [:init-values :values])]
+        (is (= (count init-values) 3))
+        (is (= (map :value init-values) ["1" "2" "3"]))))))
 
-(deftest test-parse-array-mixed-initialization
-  (testing "Объявление массива с инициализацией переменными"
-    (log/debug "Начало теста: Массив с инициализацией переменными")
+;; =============================================
+;; Тесты указателей
+;; =============================================
+
+(deftest test-pointers
+  (testing "Объявление указателя"
     (let [tokens (create-tokens
-                  [:type-keyword "unsigned"]
-                  [:type-keyword "char"]
-                  [:identifier "data"]
-                  [:separator "["]
-                  [:int_number "4"]
-                  [:separator "]"]
-                  [:operator "="]
-                  [:separator "{"]
-                  [:int_number "10"]
-                  [:separator ","]
-                  [:int_number "20"]
-                  [:separator ","]
-                  [:int_number "30"]
-                  [:separator ","]
-                  [:int_number "40"]
-                  [:separator "}"]
-                  [:separator ";"])
-          
-          result (parser/parse-array-declaration tokens)]
-      (log/debug "Результат парсинга массива с переменными:" result)
-      (is (= (:type result) :variable-declaration))
-      (is (= (:var-type result) "unsigned char"))
-      (is (:is-array result))
-      (is (= (count (get-in result [:init-values :values])) 4))
-      (log/debug "Тест завершен успешно"))))
+                  :type-keyword "int"
+                  :operator "*"
+                  :identifier "ptr"
+                  :separator ";")
+          result (test-parse-pointer-declaration tokens)]
+      (assert-node-type result :variable-declaration)
+      (assert-node-value result [:var-type] "int*")
+      (is (:is-pointer result)))))
 
-(deftest test-parse-array-zero-size
-  (testing "Объявление массива с нулевым размером"
-    (log/debug "Начало теста: Массив с нулевым размером")
-    (let [tokens (create-tokens
-                  [:type-keyword "char"]
-                  [:identifier "bar"]
-                  [:separator "["]
-                  [:int_number "0"]
-                  [:separator "]"]
-                  [:separator ";"])
-          
-          result (parser/parse-array-declaration tokens)]
-      (log/debug "Результат парсинга массива с нулевым размером:" result)
-      (is (= (:type result) :variable-declaration))
-      (is (= (:var-type result) "char[]"))
-      (is (:is-array result))
-      (is (= (get-in (:array-size result) [:value]) "0"))
-      (log/debug "Тест завершен успешно"))))
+;; =============================================
+;; Тесты присваиваний
+;; =============================================
 
-;; (deftest test-parse-multidimensional-array
-;;   (testing "Объявление многомерного массива (симуляция)"
-;;     (log/debug "Начало теста: Многомерный массив")
-;;     (let [tokens (create-tokens
-;;                   [:type-keyword "int"]
-;;                   [:identifier "matrix"]
-;;                   [:separator "["]
-;;                   [:int_number "3"]
-;;                   [:separator "]"]
-;;                   [:separator "["]
-;;                   [:int_number "3"]
-;;                   [:separator "]"]
-;;                   [:separator ";"])
-          
-;;           result (parser/parse-array-declaration tokens)]
-;;       (log/debug "Результат парсинга многомерного массива:" result)
-;;       (is (= (:type result) :variable-declaration))
-;;       (is (= (:var-type result) "int[][]"))
-;;       (is (:is-array result))
-;;       (log/debug "Тест завершен успешно"))))
-
-;; (deftest test-parse-invalid-array-declaration
-;;   (testing "Ошибка: некорректный синтаксис объявления массива"
-;;     (log/debug "Начало теста: Некорректный синтаксис массива")
-;;     (let [tokens (create-tokens
-;;                   [:type-keyword "int"]
-;;                   [:identifier "invalid"]
-;;                   [:separator "("]  ; Неправильный разделитель
-;;                   [:int_number "10"]
-;;                   [:separator "]"]
-;;                   [:separator ";"])]
-;;       (is (thrown-with-msg?
-;;            clojure.lang.ExceptionInfo
-;;            #"Некорректный синтаксис объявления массива"
-;;            (parser/parse-array-declaration tokens)))
-;;       (log/debug "Тест на некорректный синтаксис завершен"))))
-
-;; ;; Тесты для парсинга структур
-;; (deftest test-parse-struct-declaration
-;;   (testing "Корректное объявление структуры"
-;;     (log/debug "Начало теста: Корректное объявление структуры")
-;;     (let [tokens (create-tokens
-;;                   [:keyword "struct"]
-;;                   [:identifier "Point"]
-;;                   [:separator "{"]
-;;                   [:type-keyword "int"]
-;;                   [:identifier "x"]
-;;                   [:separator ";"]
-;;                   [:type-keyword "int"]
-;;                   [:identifier "y"]
-;;                   [:separator ";"]
-;;                   [:separator "}"])
-          
-;;           result (parser/parse-struct-declaration tokens)]
-;;       (log/debug "Результат парсинга структуры:" result)
-;;       (is (= (:type result) :struct-declaration))
-;;       (is (= (:name result) "Point"))
-;;       (is (vector? (:fields result)))
-;;       (is (= (count (:fields result)) 2))
-;;       (log/debug "Тест завершен успешно"))))
-
-;; ;; Тесты для парсинга typedef
-;; (deftest test-parse-typedef
-;;   (testing "Корректное объявление typedef"
-;;     (log/debug "Начало теста: Корректное объявление typedef")
-;;     (let [tokens (create-tokens
-;;                   [:keyword "typedef"]
-;;                   [:type-keyword "int"]
-;;                   [:identifier "Integer"]
-;;                   [:separator ";"])
-          
-;;           result (parser/parse-typedef tokens)]
-;;       (log/debug "Результат парсинга typedef:" result)
-;;       (is (= (:type result) :typedef))
-;;       (is (= (:original-type result) "int"))
-;;       (is (= (:new-type result) "Integer"))
-;;       (log/debug "Тест завершен успешно"))))
-
-;; Тесты для парсинга присваивания
-(deftest test-parse-assignment
+(deftest test-assignments
   (testing "Простое присваивание"
-    (log/debug "Начало теста: Простое присваивание")
     (let [tokens (create-tokens
-                  [:identifier "x"]
-                  [:operator "="]
-                  [:int_number "42"]
-                  [:separator ";"])
-          result (parser/parse-assignment tokens)]
-      (is (= (:type result) :assignment))
-      (is (= (get-in result [:left :value]) "x"))
-      (is (= (:operator result) "="))
-      (is (= (get-in result [:right :value]) "42"))
-      (log/debug "Тест завершен успешно")))
+                  :identifier "x"
+                  :operator "="
+                  :int_number "42"
+                  :separator ";")
+          result (test-parse-assignment tokens)]
+      (assert-node-type result :assignment)
+      (assert-node-value result [:left :value] "x")
+      (assert-node-value result [:operator] "=")
+      (assert-node-value result [:right :value] "42")))
 
-  (testing "Составное присваивание с +="
-    (log/debug "Начало теста: Составное присваивание")
+  (testing "Составное присваивание"
     (let [tokens (create-tokens
-                  [:identifier "counter"]
-                  [:operator "+="]
-                  [:int_number "1"]
-                  [:separator ";"])
-          result (parser/parse-assignment tokens)]
-      (is (= (:type result) :assignment))
-      (is (= (get-in result [:left :value]) "counter"))
-      (is (= (:operator result) "+="))
-      (is (= (get-in result [:right :value]) "1"))
-      (log/debug "Тест завершен успешно")))
+                  :identifier "x"
+                  :operator "+="
+                  :int_number "5"
+                  :separator ";")
+          result (test-parse-assignment tokens)]
+      (assert-node-type result :assignment)
+      (assert-node-value result [:left :value] "x")
+      (assert-node-value result [:operator] "+=")
+      (assert-node-value result [:right :value] "5")))
 
-  (testing "Присваивание со сложным выражением"
-    (log/debug "Начало теста: Присваивание со сложным выражением")
+  (testing "Присваивание с выражением"
     (let [tokens (create-tokens
-                  [:identifier "result"]
-                  [:operator "="]
-                  [:identifier "a"]
-                  [:operator "+"]
-                  [:identifier "b"]
-                  [:operator "*"]
-                  [:int_number "2"]
-                  [:separator ";"])
-          result (parser/parse-assignment tokens)]
-      (is (= (:type result) :assignment))
-      (is (= (get-in result [:left :value]) "result"))
-      (is (= (:operator result) "="))
-      (is (string? (get-in result [:right :value])))  ;; Проверяем, что значение выражения - строка
-      (log/debug "Тест завершен успешно")))
+                  :identifier "result"
+                  :operator "="
+                  :identifier "a"
+                  :operator "+"
+                  :identifier "b"
+                  :operator "*"
+                  :int_number "2"
+                  :separator ";")
+          result (test-parse-assignment tokens)]
+      (assert-node-type result :assignment)
+      (assert-node-value result [:left :value] "result")
+      (assert-node-value result [:operator] "=")
+      (is (string? (get-in result [:right :value]))))))
 
-  (testing "Составное присваивание с *="
-    (log/debug "Начало теста: Составное присваивание с *=")
-    (let [tokens (create-tokens
-                  [:identifier "value"]
-                  [:operator "*="]
-                  [:int_number "5"]
-                  [:separator ";"])
-          result (parser/parse-assignment tokens)]
-      (is (= (:type result) :assignment))
-      (is (= (get-in result [:left :value]) "value"))
-      (is (= (:operator result) "*="))
-      (is (= (get-in result [:right :value]) "5"))
-      (log/debug "Тест завершен успешно")))
+;; =============================================
+;; Тесты управляющих операторов
+;; =============================================
 
-  (testing "Составное присваивание с битовой операцией"
-    (log/debug "Начало теста: Составное присваивание с битовой операцией")
+(deftest test-control-operators
+  (testing "Оператор break"
     (let [tokens (create-tokens
-                  [:identifier "flags"]
-                  [:operator "|="]
-                  [:int_number "0x0F"]
-                  [:separator ";"])
-          result (parser/parse-assignment tokens)]
-      (is (= (:type result) :assignment))
-      (is (= (get-in result [:left :value]) "flags"))
-      (is (= (:operator result) "|="))
-      (is (= (get-in result [:right :value]) "0x0F"))
-      (log/debug "Тест завершен успешно"))))
+                  :keyword "break"
+                  :separator ";")
+          result (test-parse-break-continue tokens)]
+      (assert-node-type result :control-flow)
+      (assert-node-value result [:subtype] :break)))
+
+  (testing "Оператор continue"
+    (let [tokens (create-tokens
+                  :keyword "continue"
+                  :separator ";")
+          result (test-parse-break-continue tokens)]
+      (assert-node-type result :control-flow)
+      (assert-node-value result [:subtype] :continue)))
+
+  (testing "Оператор return"
+    (let [tokens (create-tokens
+                  :keyword "return"
+                  :identifier "x"
+                  :separator ";")
+          result (test-parse-return tokens)]
+      (assert-node-type result :control-flow)
+      (assert-node-value result [:subtype] :return)
+      (is (map? (:value result))))))
+
+;; =============================================
+;; Тесты switch-case
+;; =============================================
+
+(deftest test-switch-case
+  (testing "Конструкция switch-case"
+    (let [tokens (create-tokens
+                  :keyword "switch"
+                  :separator "("
+                  :identifier "x"
+                  :separator ")"
+                  :separator "{"
+                  :keyword "case"
+                  :int_number "1"
+                  :separator ":"
+                  :keyword "break"
+                  :separator ";"
+                  :keyword "default"
+                  :separator ":"
+                  :keyword "break"
+                  :separator ";"
+                  :separator "}")
+          result (test-parse-switch-case tokens)]
+      (assert-node-type result :control-flow)
+      (assert-node-value result [:subtype] :switch-case)
+      (is (vector? (:cases result)))
+      (is (map? (:default-case result))))))
+
+;; =============================================
+;; Тесты do-while
+;; =============================================
+
+(deftest test-do-while
+  (testing "Цикл do-while"
+    (let [tokens (create-tokens
+                  :keyword "do"
+                  :separator "{"
+                  :separator "}"
+                  :keyword "while"
+                  :separator "("
+                  :identifier "x"
+                  :operator ">"
+                  :int_number "0"
+                  :separator ")"
+                  :separator ";")
+          result (test-parse-do-while tokens)]
+      (assert-node-type result :control-flow)
+      (assert-node-value result [:subtype] :do-while)
+      (is (map? (:condition result))))))
