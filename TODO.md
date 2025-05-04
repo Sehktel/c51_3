@@ -15,3 +15,6 @@ void main (void){
     c = a + b;
 }
 ```
+
+6) Включить #include в кавычках
+
